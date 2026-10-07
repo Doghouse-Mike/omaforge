@@ -141,13 +141,35 @@ class Settings:
         }
 
 
+def resolve_mode(vault_path, conf=None):
+    """Which task format this vault is used in: "tasknotes" or "tasks"
+    (Obsidian Tasks plugin). config.json "taskFormat" decides; "auto" (the
+    default) prefers TaskNotes when its plugin is enabled."""
+    from . import inline
+    conf = conf if conf is not None else load_config()
+    want = os.environ.get("OMAFORGE_TASK_FORMAT") or str(conf.get("taskFormat") or "auto")
+    if want in ("tasknotes", "tasks"):
+        return want
+    try:
+        with open(os.path.join(vault_path, ".obsidian", "community-plugins.json"), encoding="utf-8") as f:
+            enabled = json.load(f)
+    except (OSError, ValueError):
+        enabled = []
+    if "tasknotes" in enabled:
+        return "tasknotes"
+    if inline.PLUGIN_ID in enabled:
+        return "tasks"
+    return "tasknotes"
+
+
 class Entry:
-    __slots__ = ("rel", "mtime", "size", "data", "error", "has_fm")
+    __slots__ = ("rel", "mtime", "size", "data", "error", "has_fm", "inline")
 
     def __init__(self, rel, mtime, size):
         self.rel, self.mtime, self.size = rel, mtime, size
         # data None = frontmatter not parsed because it can't be a task
         self.data, self.error, self.has_fm = {}, None, False
+        self.inline = []   # Tasks mode: (line_no, line) checkbox lines
 
 
 def file_hash(text):
@@ -160,6 +182,13 @@ class Vault:
         if not os.path.isdir(self.path):
             raise VaultError("no-vault", "vault folder not found: %s" % self.path)
         self.settings = settings or Settings(self.path)
+        self.mode = resolve_mode(self.path)
+        if self.mode == "tasks":
+            from . import inline
+            self.tasks_settings = inline.TasksSettings(self.path)
+            # TaskNotes' settings don't matter in Tasks mode.
+            if self.settings.quarantined and "TaskNotes settings" in self.settings.quarantined:
+                self.settings.quarantined = None
         if not self.settings.quarantined and not write_allowed(self.path):
             self.settings.quarantined = ("Read-only: this vault isn't listed in writableVaults in %s" % CONFIG)
         self.entries = {}       # rel -> Entry (every note with readable head)
@@ -221,10 +250,14 @@ class Vault:
     def _load_head(self, full, e):
         try:
             with open(full, "rb") as f:
-                raw = f.read(HEAD_BYTES)
+                raw = f.read(HEAD_BYTES) if self.mode != "tasks" else f.read()
             text = raw.decode("utf-8", errors="replace")
         except OSError as ex:
             e.error = "unreadable: %s" % ex
+            return
+        if self.mode == "tasks":
+            from . import inline
+            e.inline = inline.candidate_lines(text) if "[" in text else []
             return
         if not (text.startswith("---") or text.startswith("﻿---")):
             return

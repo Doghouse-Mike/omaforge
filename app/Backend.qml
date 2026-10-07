@@ -18,6 +18,9 @@ Singleton {
   property var settings: ({ statuses: [], priorities: [], savedViews: [] })
   property var tasks: ({})
   property var views: []
+  property string mode: "tasknotes"     // or "tasks" (Obsidian Tasks plugin lines)
+  property bool advancedUri: false      // Advanced URI plugin: open a note at a line
+  property var tasksPlugin: null        // Tasks' statuses etc. in Tasks mode
   property var datePicker: null   // set by the window (shared DatePicker)
   property var picker: null       // set by the window (shared Picker)
   property var prefs: ({ dates: { defaultTime: "09:00", useDefaultTime: true } })          // .base views (core/omaforge/bases.py descriptors)
@@ -53,6 +56,9 @@ Singleton {
     settings = s.settings
     today = s.today
     views = s.views || []
+    mode = s.mode || "tasknotes"
+    advancedUri = !!s.advancedUri
+    tasksPlugin = s.tasksPlugin || null
     if (s.prefs) prefs = s.prefs
     var map = {}
     for (var i = 0; i < s.tasks.length; i++) map[s.tasks[i].path] = s.tasks[i]
@@ -90,6 +96,11 @@ Singleton {
     if (cb) cb(msg)
   }
 
+  // Re-read the whole vault (e.g. after switching task format).
+  function reopen() {
+    ready = false
+    request("open", { vault: vaultPath }, function (r) { if (r.ok) applySnapshot(r.result); else fatal = r.message })
+  }
   function start() {
     if (!vaultPath) { fatal = "No vault configured. Set OMAFORGE_VAULT or pass --vault."; return }
     proc.running = true
@@ -104,14 +115,15 @@ Singleton {
   // whose field changed on disk in the meantime.
   function update(task, fields, cb) {
     var expect = {}
-    for (var k in fields) expect[k] = task.raw[k] === undefined ? null : task.raw[k]
+    if (task.rawLine !== undefined) expect = task.expect     // a Tasks line: the line as shown
+    else for (var k in fields) expect[k] = task.raw[k] === undefined ? null : task.raw[k]
     request("update", { path: task.path, set: fields, expect: expect }, cb)
   }
   function toggleComplete(task, date, cb) { request("toggleComplete", { path: task.path, date: date || "", expect: task.expect }, cb) }
   function setStatus(task, status, cb) { request("setStatus", { path: task.path, status: status, expect: task.expect }, cb) }
   function archive(task, on, cb) { request("archive", { path: task.path, on: on, expect: task.expect }, cb) }
   function skip(task, date, cb) { request("skipInstance", { path: task.path, date: date, expect: task.expect }, cb) }
-  function duplicate(task, cb) { request("duplicate", { path: task.path }, cb) }
+  function duplicate(task, cb) { request("duplicate", { path: task.path, expect: task.expect }, cb) }
   function create(fields, cb) { request("create", { fields: fields }, cb) }
   function remove(task, cb) { request("delete", { path: task.path, expect: task.expect }, cb) }
   function body(task, cb) { request("body", { path: task.path }, cb) }

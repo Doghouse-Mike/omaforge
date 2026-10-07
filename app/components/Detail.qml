@@ -25,6 +25,13 @@ Rectangle {
   signal requestDelete(var task)
   signal requestMenu(var items, real x, real y)   // shown by the window's ContextMenu
 
+  // Tasks plugin mode: a task is a checkbox line, with Tasks' own fields.
+  readonly property bool tasksMode: Backend.mode === "tasks"
+  // In Tasks mode the core describes Tasks' statuses/priorities in the same
+  // shape as TaskNotes' (see inline.settings_public), so these just work.
+  readonly property var statusOptions: Backend.settings.statuses
+  readonly property var priorityOptions: Backend.settings.priorities.slice().reverse()
+
   // Reminders ----------------------------------------------------------------
   // TaskNotes' Reminder objects: {id, type: relative|absolute, relatedTo,
   // offset (ISO 8601 duration), absoluteTime, description}.
@@ -241,7 +248,7 @@ Rectangle {
           Layout.fillWidth: true
           spacing: 6
           Repeater {
-            model: Backend.settings.statuses
+            model: d.statusOptions
             Chip {
               required property var modelData
               text: modelData.label || modelData.value
@@ -257,7 +264,7 @@ Rectangle {
           Layout.fillWidth: true
           spacing: 6
           Repeater {
-            model: Backend.settings.priorities.slice().reverse()
+            model: d.priorityOptions
             Chip {
               required property var modelData
               text: modelData.label || modelData.value
@@ -274,6 +281,9 @@ Rectangle {
         Txt { text: "Scheduled"; color: Theme.faint }
         DateRow { field: "scheduled"; Layout.fillWidth: true }
 
+        Txt { text: "Start"; color: Theme.faint; visible: d.tasksMode }
+        DateRow { field: "start"; Layout.fillWidth: true; visible: d.tasksMode }
+
         Txt { text: "Repeats"; color: Theme.faint; Layout.alignment: Qt.AlignTop; topPadding: 6 }
         Column {
           Layout.fillWidth: true
@@ -286,11 +296,11 @@ Rectangle {
               tabbable: true
               ctx: d.task
               placeholder: "every weekday, every 2 weeks on fri…"
-              text: d.task && d.task.recurrence ? R.describe(d.task.recurrence) : ""
+              text: d.task && d.task.recurrence ? (d.tasksMode ? d.task.recurrence : R.describe(d.task.recurrence)) : ""
               onEscaped: d.leave()
               onCommitted: (v, t) => {
                 var r = R.parse(v, new Date())
-                if (r.error) { Backend.notice("warn", r.error); input.text = t && t.recurrence ? R.describe(t.recurrence) : ""; return }
+                if (r.error) { Backend.notice("warn", r.error); input.text = t && t.recurrence ? (d.tasksMode ? t.recurrence : R.describe(t.recurrence)) : ""; return }
                 d.set("recurrence", r.clear ? "" : r.rule, t)
               }
             }
@@ -316,13 +326,13 @@ Rectangle {
             Txt { text: "Next one counts from"; color: Theme.faint; font.pixelSize: Theme.fsSmall; height: Theme.px(24) }
             Btn {
               implicitHeight: Theme.px(24); text: "the schedule"
-              active: !!(d.task && (d.task.raw.recurrenceAnchor || d.task.props.recurrence_anchor) !== "completion")
-              onClicked: d.set("recurrenceAnchor", "scheduled")
+              active: !!(d.task && !d.isWhenDone(d.task))
+              onClicked: d.tasksMode ? d.set("whenDone", false) : d.set("recurrenceAnchor", "scheduled")
             }
             Btn {
               implicitHeight: Theme.px(24); text: "when done"
-              active: !!(d.task && (d.task.props.recurrence_anchor === "completion"))
-              onClicked: d.set("recurrenceAnchor", "completion")
+              active: !!(d.task && d.isWhenDone(d.task))
+              onClicked: d.tasksMode ? d.set("whenDone", true) : d.set("recurrenceAnchor", "completion")
             }
           }
           Row {
@@ -330,7 +340,7 @@ Rectangle {
             visible: !!(d.task && d.task.recurring && d.task.occurrence)
             Txt { text: d.task && d.task.occurrence ? "Next: " + V.prettyDate(d.task.occurrence, Backend.today) : ""; color: Theme.faint; height: Theme.px(26) }
             Btn { text: "Done"; onClicked: Backend.toggleComplete(d.task, "") }
-            Btn { text: "Skip"; onClicked: Backend.skip(d.task, "") }
+            Btn { text: "Skip"; visible: !d.tasksMode; onClicked: Backend.skip(d.task, "") }
           }
           Txt {
             visible: !!(d.task && d.task.recurring)
@@ -339,8 +349,9 @@ Rectangle {
           }
         }
 
-        Txt { text: "Projects"; color: Theme.faint }
+        Txt { text: "Projects"; color: Theme.faint; visible: !d.tasksMode }
         Field {
+          visible: !d.tasksMode
           tabbable: true
           onEscaped: d.leave()
           Layout.fillWidth: true
@@ -350,8 +361,9 @@ Rectangle {
           onCommitted: (v, t) => d.set("projects", d.splitList(v).map(function (p) { return /^\[\[.*\]\]$/.test(p) ? p : "[[" + p + "]]" }), t)
         }
 
-        Txt { text: "Contexts"; color: Theme.faint }
+        Txt { text: "Contexts"; color: Theme.faint; visible: !d.tasksMode }
         Field {
+          visible: !d.tasksMode
           tabbable: true
           onEscaped: d.leave()
           Layout.fillWidth: true
@@ -372,8 +384,9 @@ Rectangle {
           onCommitted: (v, t) => d.set("tags", d.splitList(v).map(function (x) { return x.replace(/^#/, "") }), t)
         }
 
-        Txt { text: "Reminders"; color: Theme.faint; Layout.alignment: Qt.AlignTop; topPadding: 4 }
+        Txt { text: "Reminders"; color: Theme.faint; Layout.alignment: Qt.AlignTop; topPadding: 4; visible: !d.tasksMode }
         Column {
+          visible: !d.tasksMode
           Layout.fillWidth: true
           spacing: 4
           Repeater {
@@ -450,9 +463,20 @@ Rectangle {
         }
       }
 
+      // Tasks mode: where the line lives (no body: a task is one line).
+      Txt {
+        visible: !!(d.tasksMode && d.task)
+        Layout.fillWidth: true
+        Layout.leftMargin: Theme.pad; Layout.rightMargin: Theme.pad
+        wrapMode: Text.WrapAnywhere; elide: Text.ElideNone
+        font.pixelSize: Theme.fsSmall
+        color: Theme.faint
+        text: d.task && d.tasksMode ? "In " + d.task.file + ", line " + (d.task.line + 1) + "\n" + (d.task.rawLine || "").trim() : ""
+      }
+
       // Body ---------------------------------------------------------------
       Rectangle {
-        visible: !!(d.task && !d.task.error)
+        visible: !!(d.task && !d.task.error && !d.tasksMode)
         Layout.fillWidth: true
         Layout.leftMargin: Theme.pad; Layout.rightMargin: Theme.pad
         Layout.preferredHeight: Math.max(Theme.px(180), bodyArea.implicitHeight + Theme.px(16))
@@ -500,7 +524,7 @@ Rectangle {
         Layout.leftMargin: Theme.pad; Layout.rightMargin: Theme.pad
         spacing: 6
         Btn { text: "Open in Obsidian"; icon: "󰏌"; onClicked: d.openInObsidian(d.task) }
-        Btn { visible: !!(d.task && !d.task.error); text: d.task && d.task.archived ? "Unarchive" : "Archive"; icon: "󰆧"; onClicked: Backend.archive(d.task, !d.task.archived) }
+        Btn { visible: !!(d.task && !d.task.error && !d.tasksMode); text: d.task && d.task.archived ? "Unarchive" : "Archive"; icon: "󰆧"; onClicked: Backend.archive(d.task, !d.task.archived) }
         Btn { visible: !!(d.task && !d.task.error); text: "Delete"; icon: "󰆴"; textColor: Theme.red; onClicked: d.requestDelete(d.task) }
       }
       Txt {
@@ -512,12 +536,15 @@ Rectangle {
         elide: Text.ElideNone
         font.pixelSize: Theme.fsSmall
         color: Theme.a(Theme.fg, 0.4)
-        text: d.task ? d.task.path + (d.task.dateCreated ? "\ncreated " + V.d10(d.task.dateCreated) : "") + (d.task.dateModified ? " · modified " + V.d10(d.task.dateModified) : "") : ""
+        text: !d.task ? "" : d.tasksMode
+              ? (d.task.created ? "created " + d.task.created : "") + (d.task.completedDate ? (d.task.created ? " · " : "") + (d.task.statusType === "CANCELLED" ? "cancelled " : "done ") + d.task.completedDate : "")
+              : d.task.path + (d.task.dateCreated ? "\ncreated " + V.d10(d.task.dateCreated) : "") + (d.task.dateModified ? " · modified " + V.d10(d.task.dateModified) : "")
       }
     }
   }
 
   // Repeats -------------------------------------------------------------------
+  function isWhenDone(t) { return d.tasksMode ? !!t.whenDone : !!(t.props && t.props.recurrence_anchor === "completion") }
   function weekdayOf(v) { var a = (v || Backend.today).slice(0, 10).split("-"); return new Date(+a[0], +a[1] - 1, +a[2]) }
   function repeatPresets() {
     var base = weekdayOf(d.task && (d.task.scheduled || d.task.due))
@@ -564,7 +591,9 @@ Rectangle {
     for (var p in Backend.tasks) {
       var t = Backend.tasks[p]
       if (t.error || t.archived || t.path === task.path || already.indexOf(t.path) >= 0) continue
-      opts.push({ label: t.title, sub: (t.done ? "done · " : "") + (t.projects || []).concat((t.contexts || []).map(function (c) { return "@" + c })).join("  "), value: t.path, done: t.done })
+      if (!(t.title || "").trim()) continue     // an empty "- [ ]" line: nothing to pick it by
+      var where = d.tasksMode ? (t.notes || []) : (t.projects || []).concat((t.contexts || []).map(function (c) { return "@" + c }))
+      opts.push({ label: t.title, sub: (t.done ? "done · " : "") + where.join("  "), value: t.path, done: t.done })
     }
     opts.sort(function (a, b) { return (a.done - b.done) || a.label.localeCompare(b.label) })
     Backend.picker.open(anchor, "Blocked by which task?", opts, function (path) {
@@ -577,6 +606,7 @@ Rectangle {
 
   // Default time from Settings, for dates picked without one.
   function withDefault(day) {
+    if (d.tasksMode) return day     // Tasks dates have no time
     var p = Backend.prefs.dates || {}
     return p.useDefaultTime && p.defaultTime ? day + "T" + p.defaultTime : day
   }
@@ -591,6 +621,7 @@ Rectangle {
     property string field
     spacing: 6
     DateField {
+      dateOnly: d.tasksMode     // Tasks dates have no time
       width: Theme.px(190)
       value: d.task && d.task[dr.field] ? d.task[dr.field] : ""
       ctx: d.task

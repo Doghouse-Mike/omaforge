@@ -12,6 +12,8 @@ Rectangle {
 
   property var s: null
   property var dates: ({ defaultTime: "09:00", useDefaultTime: true })
+  property var fmt: ({ taskFormat: "auto", tasksInbox: { target: "daily", note: "Inbox.md" } })
+  property string mode: "tasknotes"
   property var service: ({ active: "unknown", enabled: "unknown" })
   property var dnd: null    // Omarchy's Do Not Disturb (null = unknown)
   property bool dirty: false
@@ -21,6 +23,8 @@ Rectangle {
       if (!r.ok) return
       dlg.s = r.result.settings
       dlg.dates = r.result.dates
+      dlg.fmt = r.result.format
+      dlg.mode = r.result.mode
       dlg.dnd = r.result.dnd
       dlg.service = r.result.service
       dlg.dirty = false
@@ -29,11 +33,16 @@ Rectangle {
     })
   }
   function close() { visible = false; closed() }
+  property string initialFormat: "auto"
+  onFmtChanged: if (!dirty) initialFormat = fmt.taskFormat
+  function setFmt(k, v) { var f = JSON.parse(JSON.stringify(fmt)); if (k === "note" || k === "target") f.tasksInbox[k] = v; else f[k] = v; fmt = f; dirty = true }
   function touch() { s = JSON.parse(JSON.stringify(s)); dirty = true }
   function save() {
-    Backend.request("setNotify", { settings: s, dates: dates }, function (r) {
+    var formatChanged = fmt.taskFormat !== initialFormat
+    Backend.request("setNotify", { settings: s, dates: dates, format: fmt }, function (r) {
       if (!r.ok) return
       Backend.prefs = { dates: r.result.dates }
+      if (formatChanged) Backend.reopen()
       dlg.s = r.result.settings
       dlg.service = r.result.service
       dlg.dirty = false
@@ -63,6 +72,28 @@ Rectangle {
       x: Theme.px(14); y: Theme.px(14)
       width: parent.width - Theme.px(28)
       spacing: Theme.px(12)
+
+      Txt { text: "Tasks"; font.bold: true; font.pixelSize: Theme.fsLarge }
+      Section {
+        title: "Task format"
+        hint: "TaskNotes: one note per task. Tasks: checkbox lines inside notes (the Obsidian Tasks plugin). Auto picks TaskNotes when its plugin is enabled. Now using: " + (dlg.mode === "tasks" ? "Tasks" : "TaskNotes") + "."
+        Btn { text: "Auto"; active: dlg.fmt.taskFormat === "auto"; onClicked: dlg.setFmt("taskFormat", "auto") }
+        Btn { text: "TaskNotes"; active: dlg.fmt.taskFormat === "tasknotes"; onClicked: dlg.setFmt("taskFormat", "tasknotes") }
+        Btn { text: "Tasks"; active: dlg.fmt.taskFormat === "tasks"; onClicked: dlg.setFmt("taskFormat", "tasks") }
+      }
+      Section {
+        title: "New Tasks tasks go to"
+        hint: "For the Tasks format: today's daily note if it already exists (OmaForge never creates daily notes — your template may need Obsidian), otherwise this note."
+        Btn { text: "today's daily note"; active: dlg.fmt.tasksInbox.target === "daily"; onClicked: dlg.setFmt("target", "daily") }
+        Btn { text: "always this note"; active: dlg.fmt.tasksInbox.target === "note"; onClicked: dlg.setFmt("target", "note") }
+        Field {
+          width: Theme.px(150)
+          tabbable: true
+          text: dlg.fmt.tasksInbox.note
+          onCommitted: v => dlg.setFmt("note", v.trim())
+        }
+      }
+      Rectangle { width: col.width; height: 1; color: Theme.divider }
 
       Txt { text: "Dates"; font.bold: true; font.pixelSize: Theme.fsLarge }
       Section {

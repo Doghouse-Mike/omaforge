@@ -9,20 +9,21 @@ Column {
   id: df
   property string value: ""          // TaskNotes form: YYYY-MM-DD[THH:mm]
   property var ctx: null
-  property string placeholder: "fri 3pm, +1h, 1 jan…"
+  property string placeholder: dateOnly ? "fri, +3d, 1 jan…" : "fri 3pm, +1h, 1 jan…"
   property alias input: field.input
   property bool tabbable: true
+  property bool dateOnly: false    // strip times (e.g. Obsidian Tasks dates)
   signal picked(string value, var target)   // "" = clear
   signal escaped()
   spacing: 2
 
-  readonly property var opts: Backend.prefs.dates || { defaultTime: "09:00", useDefaultTime: true }
+  readonly property var opts: dateOnly ? { useDefaultTime: false } : (Backend.prefs.dates || { defaultTime: "09:00", useDefaultTime: true })
   readonly property var preview: field.input.activeFocus && field.input.text !== field._initial && field.input.text.trim() !== ""
                                  ? D.parse(field.input.text, new Date(), opts) : null
 
   function openPicker() {
     var target = df.ctx
-    Backend.datePicker.open(field, df.value, function (v) { df.picked(v, target) })
+    Backend.datePicker.open(field, df.value, function (v) { df.picked(df.dateOnly ? v.slice(0, 10) : v, target) })
   }
 
   Row {
@@ -44,7 +45,7 @@ Column {
           input.text = df.value ? D.compact(df.value, new Date()) : ""
           return
         }
-        df.picked(r.value, t)
+        df.picked(df.dateOnly ? r.value.slice(0, 10) : r.value, t)
       }
       input.onActiveFocusChanged: if (input.activeFocus) input.selectAll()
     }

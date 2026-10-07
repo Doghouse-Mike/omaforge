@@ -69,6 +69,8 @@ ShellRoot {
       }
       return "no such item"
     }
+    function create(title: string): void { root.createTask(title) }
+    function confirmDelete(): void { confirmBox.del() }
     function select(n: int): void { var t = root.flatTasks[n]; if (t) root.selectedPath = t.path }
     function press(key: string): string { return root.pressNamed(key) ? "ok" : "unknown key" }
     // Renders the app's own contents to a PNG (never other windows).
@@ -205,6 +207,10 @@ ShellRoot {
         if (kind === "project") fields.projects = ["[[" + arg.replace(/^\[\[|\]\]$/g, "") + "]]"]
         if (kind === "context") fields.contexts = [arg]
         if (kind === "tag") fields.tags = [arg]
+        if (kind === "note") {
+          // Tasks mode: add the line to the note you're looking at.
+          for (var p in Backend.tasks) if ((Backend.tasks[p].notes || [])[0] === arg) { fields.file = Backend.tasks[p].file; break }
+        }
         if (viewId === "today") fields.scheduled = Backend.today
         Backend.create(fields, function (r) { if (r.ok) root.selectedPath = r.result.path })
       }
@@ -241,6 +247,12 @@ ShellRoot {
           return [{ text: "TaskNotes saved view", icon: "󰈲", enabled: false, hint: "edit it in TaskNotes' settings" },
                   { separator: true },
                   { text: "New view…", icon: "+", action: function () { root.startNewView() } }]
+        if (kind === "note") {
+          var f = ""
+          for (var p in Backend.tasks) if ((Backend.tasks[p].notes || [])[0] === arg) { f = Backend.tasks[p].file; break }
+          return [{ text: "Show this note's tasks", icon: "󰈲", action: function () { root.pickView(id) } },
+                  { text: "Open note in Obsidian", icon: "󰏌", enabled: !!f, action: function () { root.obsidianOpen(f) } }]
+        }
         if (kind === "project" || kind === "context" || kind === "tag") {
           items.push({ text: "Show this list", icon: "󰈲", action: function () { root.pickView(id) } })
           items.push({ text: "New view from this " + kind, icon: "+",
@@ -262,7 +274,8 @@ ShellRoot {
         var s = Backend.settings, items = []
         if (t.recurring) {
           items.push({ text: "Complete this occurrence", icon: "✓", hint: t.occurrence ? V.prettyDate(t.occurrence, Backend.today) : "", action: function () { root.toggle(t) } })
-          items.push({ text: "Skip this occurrence", icon: "↷", action: function () { Backend.skip(t, "") } })
+          if (Backend.mode !== "tasks")   // Tasks has no "skip"
+            items.push({ text: "Skip this occurrence", icon: "↷", action: function () { Backend.skip(t, "") } })
         } else {
           items.push({ text: t.done ? "Mark not done" : "Complete", icon: "✓", hint: "x", action: function () { root.toggle(t) } })
         }
@@ -299,18 +312,19 @@ ShellRoot {
           picker.open({ x: ctxMenu.at.x, y: ctxMenu.at.y }, "Move to which project?", opts, function (v) { setProject(v) }, { free: true })
         } })
         projItems.push({ text: "No project", enabled: (t.projects || []).length > 0, action: function () { setProject("") } })
-        items.push({ text: "Move to project", icon: "󰉋", submenu: projItems })
+        if (Backend.mode !== "tasks") items.push({ text: "Move to project", icon: "󰉋", submenu: projItems })
         items.push({ text: "Blocked by…", icon: "⛔", action: function () { detail.pickBlocker({ x: ctxMenu.at.x, y: ctxMenu.at.y }, t) } })
         items.push({ separator: true })
         items.push({ text: "Edit", icon: "✎", hint: "Enter", action: function () { root.selectedPath = t.path; root.detailOpen = true; root.overlayDetail = true; detail.focusFirst() } })
         items.push({ text: "Open in Obsidian", icon: "󰏌", hint: "o", action: function () { root.openInObsidian(t) } })
-        items.push({ text: "Copy link", icon: "󰌷", action: function () { root.copyText("[[" + t.path.replace(/^.*\//, "").replace(/\.md$/, "") + "]]") } })
-        items.push({ text: "Copy as Markdown", icon: "󰍔", action: function () { root.copyText(root.taskMarkdown(t)) } })
+        var noteFile = t.file !== undefined ? t.file : t.path
+        items.push({ text: "Copy link", icon: "󰌷", hint: t.file !== undefined ? "to its note" : "", action: function () { root.copyText("[[" + noteFile.replace(/^.*\//, "").replace(/\.md$/, "") + "]]") } })
+        items.push({ text: "Copy as Markdown", icon: "󰍔", action: function () { root.copyText(t.raw && t.file !== undefined ? t.raw.replace(/^[\s>]+/, "") : root.taskMarkdown(t)) } })
         items.push({ text: "Duplicate", icon: "󰆏", action: function () {
           Backend.duplicate(t, function (r) { if (r.ok) { root.selectedPath = r.result.path; Backend.notice("info", "Duplicated as \"" + r.result.task.title + "\"") } })
         } })
         items.push({ separator: true })
-        items.push({ text: t.archived ? "Unarchive" : "Archive", icon: "󰆧", action: function () { Backend.archive(t, !t.archived) } })
+        if (Backend.mode !== "tasks") items.push({ text: t.archived ? "Unarchive" : "Archive", icon: "󰆧", action: function () { Backend.archive(t, !t.archived) } })
         items.push({ text: "Delete…", icon: "󰆴", danger: true, action: function () { confirm.task = t; confirm.visible = true } })
         return items
       }
@@ -333,6 +347,14 @@ ShellRoot {
       }
 
       function openInObsidian(t) {
+        if (t.file !== undefined && t.line !== undefined) {
+          // A Tasks line: jump to it when Advanced URI is there, else open its note.
+          var uri = Backend.advancedUri
+            ? "obsidian://adv-uri?vault=" + encodeURIComponent(Backend.vaultName) + "&filepath=" + encodeURIComponent(t.file) + "&line=" + (t.line + 1)
+            : "obsidian://open?vault=" + encodeURIComponent(Backend.vaultName) + "&file=" + encodeURIComponent(t.file.replace(/\.md$/, ""))
+          Quickshell.execDetached(["xdg-open", uri])
+          return
+        }
         var uri = "obsidian://open?vault=" + encodeURIComponent(Backend.vaultName) + "&file=" + encodeURIComponent(t.path.replace(/\.md$/, ""))
         Quickshell.execDetached(["xdg-open", uri])
       }
@@ -626,7 +648,10 @@ ShellRoot {
           Keys.onEscapePressed: { confirm.visible = false; root.forceActiveFocus() }
           Keys.onReturnPressed: del()
           function del() {
-            Backend.remove(confirm.task, function (r) { if (r.ok) Backend.notice("info", "Moved to " + r.result.trashedTo) })
+            var gone = confirm.task
+            Backend.remove(gone, function (r) {
+              if (r.ok) Backend.notice("info", gone.rawLine !== undefined ? "Line removed" : "Moved to " + r.result.trashedTo)
+            })
             confirm.visible = false
             root.forceActiveFocus()
           }
@@ -637,7 +662,9 @@ ShellRoot {
             Txt { text: "Delete this task?"; font.bold: true; font.pixelSize: Theme.fsLarge }
             Txt { width: parent.width; text: confirm.task ? confirm.task.title : ""; wrapMode: Text.Wrap; elide: Text.ElideNone }
             Txt { width: parent.width; color: Theme.faint; font.pixelSize: Theme.fsSmall; wrapMode: Text.Wrap; elide: Text.ElideNone
-                  text: "The note goes to the trash Obsidian uses for this vault, so it can be restored." }
+                  text: confirm.task && confirm.task.rawLine !== undefined
+                        ? "The line is removed from " + confirm.task.file + ". (Obsidian's file history can bring it back.)"
+                        : "The note goes to the trash Obsidian uses for this vault, so it can be restored." }
             Row {
               spacing: 8
               Btn { text: "Delete (Enter)"; textColor: Theme.red; onClicked: confirmBox.del() }

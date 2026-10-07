@@ -149,7 +149,8 @@ function compute(viewId, tasks, settings, today, opts) {
   case "project":
   case "context":
   case "tag":
-    var key = kind === "project" ? "projects" : kind === "context" ? "contexts" : "tags"
+  case "note":
+    var key = kind === "project" ? "projects" : kind === "context" ? "contexts" : kind === "note" ? "notes" : "tags"
     filter = function (t) {
       return (showDone ? !t.error && !t.archived : isOpen(t)) && (t[key] || []).indexOf(arg) >= 0
     }

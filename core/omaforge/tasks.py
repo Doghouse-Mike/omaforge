@@ -280,6 +280,13 @@ def basename_index(vault):
 
 
 def all_tasks(vault, day):
+    if getattr(vault, "mode", "tasknotes") == "tasks":
+        from . import inline
+        return inline.all_tasks(vault, day)
+    return _all_tasknotes(vault, day)
+
+
+def _all_tasknotes(vault, day):
     idx = basename_index(vault)
     out = []
     for rel in vault.entries:

@@ -70,6 +70,7 @@ Rectangle {
             m.push({ t: V.statusLabel(t.status, Backend.settings), c: row.statusColor })
           if (t.recurring) m.push({ t: "↻ " + (t.recurrenceText || "repeats"), c: Theme.faint })
           if (t.blocked) m.push({ t: "⛔ blocked", c: Theme.red })
+          for (var n = 0; n < (t.notes || []).length; n++) m.push({ t: "󰈙 " + t.notes[n], c: Theme.blue })
           for (var i = 0; i < (t.projects || []).length; i++) m.push({ t: "󰉋 " + t.projects[i], c: Theme.blue })
           for (var j = 0; j < (t.contexts || []).length; j++) m.push({ t: "@" + t.contexts[j], c: Theme.green })
           for (var k = 0; k < (t.tags || []).length; k++) m.push({ t: "#" + t.tags[k], c: Theme.faint })

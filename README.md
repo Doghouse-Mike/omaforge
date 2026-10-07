@@ -1,7 +1,9 @@
 # OmaForge
 
 A native [Omarchy](https://omarchy.org) app for [TaskNotes](https://github.com/callumalpass/tasknotes)
-tasks: one Markdown note per task in an Obsidian vault. It's a keyboard-first
+tasks (one Markdown note per task in an Obsidian vault), or for
+[Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks)
+checkbox lines. It's a keyboard-first
 list/board manager in the spirit of [TaskForge](https://taskforge.md/), built on
 Quickshell so it looks and behaves like the rest of Omarchy.
 
@@ -29,10 +31,16 @@ like, not as a finished product.
   Quickshell-based desktop). It should run anywhere Quickshell does, but it
   takes its colours and fonts from Omarchy's theme files, and nothing else has
   been tried.
-- **TaskNotes format only**: one Markdown note per task, with YAML properties.
-  The official [TaskForge](https://taskforge.md/) covers much more, including inline
-  checkbox tasks (Obsidian Tasks, Dataview and Task Genius syntaxes), calendars,
-  a notes editor and mobile. None of that is here.
+- **TaskNotes is the format that's dogfooded.** I use OmaForge daily on a
+  TaskNotes vault. [Obsidian Tasks](#tasknotes-or-tasks) lines are supported
+  too and checked against the Tasks plugin itself, but they get far less
+  real-world use, so expect rougher edges there. Bug reports are very welcome.
+- **English only.** Dates, repeat rules ("every 2 weeks on Friday") and the
+  interface are all in English, and nothing has been localised yet.
+  Volunteers are welcome.
+- The official [TaskForge](https://taskforge.md/) covers much more, including
+  Dataview and Task Genius syntaxes, calendars, a notes editor and mobile.
+  None of that is here.
 - **Works:**
   - Today, Upcoming, All open, Completed and Archived lists, plus projects,
     contexts and tags
@@ -56,9 +64,13 @@ like, not as a finished product.
   - editing hand-made `.base` views
   - manual drag ordering
   - quick-add parsing of whole sentences (dates are parsed; titles aren't)
+  - Obsidian Tasks `tasks` query blocks
+  - translations (English only so far)
 - **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.13.8
   itself, running in Obsidian, for 33 operations. Its views are compared with
-  Obsidian's own Bases engine across 155 cases. There are unit tests for the
+  Obsidian's own Bases engine across 156 cases. Tasks support is compared with
+  the Tasks plugin (8.4.0): every task in a 600-task vault is read the same, and
+  37 sample lines are written and ticked the same. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
   [Matching TaskNotes exactly](#matching-tasknotes-exactly).
 
@@ -155,6 +167,28 @@ it opens in Obsidian. Views made this way can be edited and deleted from
 OmaForge (**✎ Edit view**). Views you built by hand in Obsidian are never
 rewritten: OmaForge only touches a `.base` file it could have written itself.
 TaskNotes' older saved views (from its settings) are listed read-only.
+
+### TaskNotes or Tasks
+
+OmaForge works with one task format at a time, chosen under the gear
+(**Task format**):
+
+- **TaskNotes**: one note per task, with YAML properties. This is everything
+  described above.
+- **Tasks** (the [Obsidian Tasks](https://github.com/obsidian-tasks-group/obsidian-tasks)
+  plugin): a task is a checkbox line inside any note, e.g.
+  `- [ ] Pay rent 📅 2026-11-01`. Both the emoji and Dataview (`[due:: …]`)
+  formats are read, and lines are written back in the format your Tasks
+  settings use. The sidebar groups tasks by the note they live in. Dates
+  have no times in Tasks, and there are no reminders. Completing a repeating
+  task adds the next occurrence's line, as Tasks does. New tasks go to
+  today's daily note if it exists, otherwise to an inbox note you choose
+  (OmaForge never creates daily notes, since they may use templates).
+  Tasks has no "skip occurrence", so neither does this mode. `tasks` query
+  blocks aren't supported yet.
+
+**Auto** (the default) uses TaskNotes when that plugin is enabled in the
+vault, and Tasks otherwise.
 
 ### Notifications
 
@@ -262,6 +296,7 @@ node tools/recur-test.mjs                 # the repeat-rule reader
 export OMAFORGE_TEST_VAULT=~/Documents/some-disposable-vault-copy
 python3 -I tools/difftest.py
 python3 -I tools/basestest.py
+python3 -I tools/taskstest.py             # needs the Tasks plugin enabled too
 ```
 
 The Obsidian CLI quietly runs commands in whichever vault window was used
@@ -276,6 +311,12 @@ purpose. For example, `!x` of a missing property is no match (null), not
 true, so the editor writes "doesn't include" as `… != true` to keep tasks
 with no value.
 
+`tools/taskstest.py` does the same for Obsidian Tasks (spec in
+`docs/tasks-plugin-spec.md`). It compares OmaForge's reading of every task in
+the vault with the Tasks plugin's own `getTasks()`. Then, for each sample line,
+it compares OmaForge's tick and rewrite with Tasks' `executeToggleTaskDoneCommand`:
+repeats, month-end clamps, "when done", 🏁 delete, odd spacing and more.
+
 `tools/obsidian-test` is that guarded Obsidian CLI.
 
 ## Layout
@@ -284,7 +325,8 @@ with no value.
 app/      Quickshell UI (shell.qml, Theme/Backend singletons, components/)
 core/     Python vault core: frontmatter.py (line-preserving YAML),
           vault.py (scan, settings, atomic writes), tasks.py (operations),
-          recurrence.py (rrule.js-compatible), bases.py (.base parser,
+          recurrence.py (rrule.js-compatible), inline.py + rrule_text.py
+          (Obsidian Tasks lines and repeat text), bases.py (.base parser,
           validator, view editor ⇄ YAML), server.py (JSON-lines bridge)
 bin/      launcher        tools/  dev + test helpers        docs/  spec, notes
 ```
@@ -298,9 +340,9 @@ follows `omarchy-theme-set` live.
 
 ## Not (yet) in scope
 
-Calendar grids, natural-language quick add, time
-tracking and pomodoro, editing recurrence rules or dependencies (both shown
-read-only), editing hand-made `.base` views, and manual drag ordering.
+Calendar grids, natural-language quick add, time tracking and pomodoro,
+editing hand-made `.base` views, manual drag ordering, Obsidian Tasks query
+blocks, and translations.
 
 ## Licence
 

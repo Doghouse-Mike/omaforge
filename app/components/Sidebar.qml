@@ -35,7 +35,7 @@ Rectangle {
     }
     // Views: Bases (.base) views, grouped by file, then TaskNotes' legacy
     // saved views. Counts only for views that evaluate.
-    out.push({ kind: "header", label: "Views", add: true })
+    if (Backend.mode !== "tasks") out.push({ kind: "header", label: "Views", add: true })
     var bvs = Backend.views || [], lastFile = ""
     for (var b = 0; b < bvs.length; b++) {
       var bv = bvs[b]
@@ -49,11 +49,12 @@ Rectangle {
       out.push({ kind: "item", id: bv.id, label: bv.name, icon: bv.layout === "board" ? "󰕰" : bv.layout === "dates" ? "󰃭" : "󰈲",
                  count: c, dim: !!bv.unsupported, tip: bv.unsupported, mine: !!bv.model })
     }
-    var views = s.savedViews || []
+    var views = Backend.mode === "tasks" ? [] : (s.savedViews || [])
     if (views.length) {
       out.push({ kind: "subheader", label: "TaskNotes saved views" })
       for (var k = 0; k < views.length; k++) out.push({ kind: "item", id: "saved:" + views[k].id, label: views[k].name, icon: "󰈲", count: -1 })
     }
+    section("Notes", "notes", "note", "󰈙")
     section("Projects", "projects", "project", "󰉋")
     section("Contexts", "contexts", "context", "@")
     section("Tags", "tags", "tag", "#")

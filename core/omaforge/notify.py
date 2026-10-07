@@ -382,10 +382,15 @@ class Daemon:
             with self.lock:
                 try:
                     self.vault.scan()
-                    t = tasks.task_for(self.vault, e["path"], tasks.today())
+                    from . import inline
+                    if self.vault.mode == "tasks":
+                        t = next((x for x in inline.all_tasks(self.vault, tasks.today()) if x["path"] == e["path"]), None)
+                        engine = inline.OPS
+                    else:
+                        t = tasks.task_for(self.vault, e["path"], tasks.today())
+                        engine = tasks.OPS
                     if t and not t.get("done"):
-                        r = tasks.OPS["toggleComplete"](self.vault, {"path": t["path"], "expect": t["expect"]}, tasks.today())
-                        r.pop("_upsert", None)
+                        engine["toggleComplete"](self.vault, {"path": t["path"], "expect": t["expect"]}, tasks.today())
                 except VaultError as ex:
                     notify_plain("Couldn't complete \"%s\"" % e["title"], str(ex))
         elif action == "snooze":
@@ -464,8 +469,19 @@ def date_prefs(cfg=None):
     return out
 
 
+INBOX_DEFAULTS = {"target": "daily", "note": "Inbox.md"}
+
+
+def format_prefs(cfg=None):
+    conf = cfg if cfg is not None else load_config()
+    inbox = dict(INBOX_DEFAULTS)
+    inbox.update({k: v for k, v in (conf.get("tasksInbox") or {}).items() if k in INBOX_DEFAULTS})
+    return {"taskFormat": conf.get("taskFormat") or "auto", "tasksInbox": inbox}
+
+
 def op_get(vault, req, day):
-    return {"settings": settings(), "dates": date_prefs(), "service": service_state(), "dnd": omarchy_dnd()}
+    return {"settings": settings(), "dates": date_prefs(), "format": format_prefs(), "mode": vault.mode,
+            "service": service_state(), "dnd": omarchy_dnd()}
 
 
 def op_set(vault, req, day):
@@ -479,10 +495,20 @@ def op_set(vault, req, day):
     dates = date_prefs({"dates": req.get("dates") or {}})
     if not re.match(r"^\d{2}:\d{2}$", str(dates["defaultTime"])):
         raise VaultError("bad-setting", "default time must look like 09:00")
+    fmt = req.get("format") or {}
+    if fmt.get("taskFormat") not in (None, "auto", "tasknotes", "tasks"):
+        raise VaultError("bad-setting", "task format must be auto, tasknotes or tasks")
+    inbox = dict(INBOX_DEFAULTS)
+    inbox.update({k: v for k, v in (fmt.get("tasksInbox") or {}).items() if k in INBOX_DEFAULTS})
+    if inbox["target"] not in ("daily", "note") or not str(inbox["note"]).strip().endswith(".md"):
+        raise VaultError("bad-setting", "the inbox note must be a .md path inside the vault")
     conf["notifications"] = merged
     conf["dates"] = dates
+    if fmt:
+        conf["taskFormat"] = fmt.get("taskFormat") or "auto"
+        conf["tasksInbox"] = inbox
     save_config(conf)
-    return {"settings": merged, "dates": dates, "service": service_state(), "dnd": omarchy_dnd()}
+    return {"settings": merged, "dates": dates, "format": format_prefs(conf), "service": service_state(), "dnd": omarchy_dnd()}
 
 
 def op_test(vault, req, day):

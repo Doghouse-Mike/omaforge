@@ -16,7 +16,7 @@ import sys
 import time
 import traceback
 
-from . import bases, notify, tasks
+from . import bases, inline, notify, tasks
 from .vault import Vault, VaultError
 
 POLL_SEC = 1.5
@@ -47,10 +47,13 @@ class Server:
         return {
             "vault": v.path,
             "vaultName": os.path.basename(v.path),
-            "settings": v.settings.public(),
+            "settings": v.settings.public() if v.mode == "tasknotes" else inline.settings_public(v),
             "today": self.today,
             "tasks": tasks.all_tasks(v, self.today),
-            "views": bases.all_views(v),
+            "views": bases.all_views(v) if v.mode == "tasknotes" else [],
+            "mode": v.mode,
+            "advancedUri": inline.plugin_enabled(v.path, "obsidian-advanced-uri"),
+            "tasksPlugin": v.tasks_settings.public() if v.mode == "tasks" else None,
             "prefs": {"dates": notify.date_prefs()},
         }
 
@@ -80,6 +83,11 @@ class Server:
             self.bases_sig = sig
             self.send({"event": "views", "views": bases.all_views(self.vault)})
         changed, removed = self.vault.scan()
+        if self.vault.mode == "tasks":
+            if changed or removed:
+                up, gone = inline.delta(self.vault, changed, removed, self.today)
+                self.send({"event": "tasks", "upsert": up, "remove": gone})
+            return
         if changed or removed:
             self.send({"event": "tasks",
                        "upsert": [t for t in (tasks.task_for(self.vault, r, self.today) for r in changed) if t],
@@ -95,7 +103,8 @@ class Server:
             raise VaultError("no-vault", "no vault open")
         if op == "snapshot":
             return self.snapshot()
-        fn = tasks.OPS.get(op) or bases.OPS.get(op) or notify.OPS.get(op)
+        engine = inline.OPS if self.vault.mode == "tasks" else tasks.OPS
+        fn = engine.get(op) or bases.OPS.get(op) or notify.OPS.get(op)
         if not fn:
             raise VaultError("bad-op", "unknown op %r" % op)
         result = fn(self.vault, req, self.today)
