@@ -8,8 +8,10 @@ list/board manager in the spirit of [TaskForge](https://taskforge.md/), built on
 Quickshell so it looks and behaves like the rest of Omarchy.
 
 The vault is the only state. OmaForge reads and writes the notes directly, as
-TaskNotes itself would, so Obsidian (and Obsidian Sync) see its changes as
+TaskNotes itself would, so Obsidian (and any sync service) see its changes as
 ordinary edits. Obsidian doesn't need to be running.
+
+If you dig this, you may also enjoy [this bar widget plugin thing](https://github.com/Doghouse-Mike/omatasknotes).
 
 ![OmaForge's Upcoming list, on the bundled demo vault](docs/screenshots/upcoming.png)
 
