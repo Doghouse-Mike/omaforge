@@ -195,6 +195,78 @@ class Archive(VaultCase):
         self.assertIn("completedDate: %s" % DAY, text)
 
 
+class Dependencies(VaultCase):
+    def test_blocked_by_path_becomes_shortest_link(self):
+        self.put("TaskNotes/Tasks/Call the bank.md", TASK)
+        r = self.op("update", path="TaskNotes/Tasks/Buy milk.md", set={"blockedBy": [{"path": "TaskNotes/Tasks/Call the bank.md"}]}, expect={})
+        self.assertIn('blockedBy:\n  - uid: "[[Call the bank]]"\n    reltype: FINISHTOSTART', self.get(r["path"]))
+        self.assertTrue(r["task"]["blocked"])
+        # same name elsewhere in the vault -> the full path
+        self.put("Elsewhere/Call the bank.md", "plain note\n")
+        self.v.scan()
+        r = self.op("update", path="TaskNotes/Tasks/Buy milk.md", set={"blockedBy": [{"path": "TaskNotes/Tasks/Call the bank.md"}]}, expect={})
+        self.assertIn('"[[TaskNotes/Tasks/Call the bank]]"', self.get(r["path"]))
+        r = self.op("update", path="TaskNotes/Tasks/Buy milk.md", set={"blockedBy": []}, expect={})
+        self.assertNotIn("blockedBy", self.get(r["path"]))
+
+
+class Repeats(VaultCase):
+    def test_set_change_clear(self):
+        # DAY is Tue 2026-10-06; the task has due 2026-10-10 and no scheduled date
+        r = self.op("update", path="TaskNotes/Tasks/Buy milk.md", set={"recurrence": "FREQ=WEEKLY;BYDAY=FR"}, expect={})
+        text = self.get(r["path"])
+        self.assertIn("recurrence: DTSTART:20261009;FREQ=WEEKLY;BYDAY=FR", text)
+        self.assertIn("scheduled: 2026-10-09", text)
+        self.assertIn("due: 2026-10-10", text)            # no scheduled before -> due untouched
+        r = self.op("update", path=r["path"], set={"recurrence": "FREQ=MONTHLY;BYMONTHDAY=1"}, expect={})
+        text = self.get(r["path"])
+        self.assertIn("scheduled: 2026-11-01", text)
+        self.assertIn("due: 2026-11-02", text)            # moved with scheduled (+23 days)
+        self.assertIn("DTSTART:20261101;", text)
+        r = self.op("update", path=r["path"], set={"recurrence": ""}, expect={})
+        self.assertNotIn("recurrence:", self.get(r["path"]))
+
+    def test_bad_rules_refused(self):
+        for bad in ("every blue moon", "FREQ=WEEKLY;UNTIL=20200101"):
+            with self.assertRaises(VaultError):
+                self.op("update", path="TaskNotes/Tasks/Buy milk.md", set={"recurrence": bad}, expect={})
+
+
+class Duplicate(VaultCase):
+    def test_duplicate(self):
+        self.put("TaskNotes/Tasks/Weekly report.md", """---
+status: done
+priority: high
+due: 2026-10-10
+contexts:
+  - work
+recurrence: DTSTART:20261002;FREQ=WEEKLY;BYDAY=FR
+complete_instances:
+  - 2026-10-02
+reminders:
+  - id: rem_1
+    type: relative
+    relatedTo: due
+    offset: -PT15M
+dateCreated: 2026-10-01T10:00:00.000+01:00
+tags:
+  - todo
+  - work
+---
+
+Notes stay.
+""")
+        r = self.op("duplicate", path="TaskNotes/Tasks/Weekly report.md")
+        self.assertEqual(r["path"], "TaskNotes/Tasks/Weekly report (copy).md")
+        text = self.get(r["path"])
+        for want in ("status: todo", "priority: high", "due: 2026-10-10", "  - work", "offset: -PT15M",
+                     "FREQ=WEEKLY;BYDAY=FR", "Notes stay."):
+            self.assertIn(want, text)
+        for gone in ("complete_instances", "id: rem_1\n", "status: done"):
+            self.assertNotIn(gone, text)
+        self.assertTrue(text.split("---")[1].rstrip().endswith("  - work"))  # tags still last
+
+
 class Create(VaultCase):
     def test_collision_suffix(self):
         r = self.op("create", fields={"title": "Buy milk"})

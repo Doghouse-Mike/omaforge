@@ -14,7 +14,7 @@ import yaml
 FM_DELIM = re.compile(r"^---[ \t]*$")
 TOP_KEY = re.compile(r"^([^\s#:'\"\-][^:]*?|'[^']*'|\"[^\"]*\"):(?:[ \t]|$)")
 DATEISH = re.compile(r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$")
-SAFE_PLAIN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_ ./()+,&@!-]*$")
+SAFE_PLAIN = re.compile(r"^(?:[A-Za-z0-9_]|-(?=[^\s]))[A-Za-z0-9_ ./()+,&@!:;=-]*$")
 
 
 class FrontmatterError(Exception):

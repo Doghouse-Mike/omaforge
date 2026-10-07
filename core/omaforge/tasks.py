@@ -527,6 +527,25 @@ def op_update(vault, req, day):
                     rule = str(data.get(f("recurrence")))
                     if not recurrence.has_dtstart(rule):
                         note.set(f("recurrence"), recurrence.with_dtstart(rule, v, str(data.get(f("dateCreated")) or "")))
+        elif name == "recurrence":
+            set_recurrence(s, note, data, str(value or "").strip(), day)
+        elif name == "recurrenceAnchor":
+            if value not in ("scheduled", "completion"):
+                raise VaultError("bad-field", "anchor must be scheduled or completion")
+            note.set(f("recurrenceAnchor"), value)
+        elif name == "blockedBy":
+            deps = []
+            for b in as_list(value):
+                if isinstance(b, dict) and b.get("path"):
+                    deps.append({"uid": "[[%s]]" % linktext(vault, b["path"]), "reltype": "FINISHTOSTART"})
+                elif isinstance(b, dict) and b.get("uid"):
+                    deps.append({k: str(b[k]) for k in ("uid", "reltype", "gap") if b.get(k)})
+                else:
+                    raise VaultError("bad-field", "malformed dependency %r" % (b,))
+            if deps:
+                note.set(f("blockedBy"), deps)
+            else:
+                note.remove(f("blockedBy"))
         elif name == "reminders":
             # TaskNotes' Reminder shape, in its key order.
             rems = []
@@ -548,6 +567,53 @@ def op_update(vault, req, day):
     if new_title is not None:
         return retitle(vault, rel, text, note, data, new_title, day)
     return result(commit(vault, rel, text, note, day))
+
+
+def linktext(vault, rel):
+    """Obsidian's shortest link text: the bare name if it's unique in the
+    vault, otherwise the path without .md."""
+    stem = os.path.basename(rel)[:-3]
+    same = [r for r in vault.entries if os.path.basename(r)[:-3].lower() == stem.lower()]
+    return stem if len(same) <= 1 else rel[:-3]
+
+
+def set_recurrence(s, note, data, body, day):
+    """TaskNotes' edit-path rules (verified against 4.13.8): clearing removes
+    `recurrence` only; setting one moves scheduled to the first occurrence
+    from today on (counting the rule from the old scheduled date, else
+    dateCreated, skipping done/skipped occurrences), moves due by the same
+    amount if there was a scheduled date, and sets DTSTART to that day."""
+    f = s.f
+    if not body:
+        note.remove(f("recurrence"))
+        return
+    body = re.sub(r"DTSTART:[^;]+;?", "", body).strip().lstrip(";")
+    if body.upper().startswith("RRULE:"):
+        body = body[6:]
+    if "FREQ=" not in body.upper():
+        raise VaultError("bad-field", "not a repeat rule: %r" % body)
+    sched = str(data.get(f("scheduled")) or "")
+    due = str(data.get(f("due")) or "")
+    basis = date_or_none(sched) or date_or_none(data.get(f("dateCreated"))) or date_or_none(day)
+    completed = [str(x)[:10] for x in as_list(data.get(f("completeInstances")))]
+    skipped = [str(x)[:10] for x in as_list(data.get(f("skippedInstances")))]
+    nxt = recurrence.next_open("DTSTART:%s;%s" % (basis.strftime("%Y%m%d"), body), day, completed, skipped)
+    if not nxt:
+        raise VaultError("bad-field", "that rule has no upcoming dates")
+    suffix = sched[10:] if len(sched) > 10 else ""
+    if suffix:
+        hm = suffix[1:].replace(":", "")
+        dtstart = "%sT%s00Z" % (nxt.replace("-", ""), hm[:4])
+    else:
+        dtstart = nxt.replace("-", "")
+    note.set(f("recurrence"), "DTSTART:%s;%s" % (dtstart, body))
+    note.set(f("scheduled"), nxt + suffix)
+    if due and sched:
+        try:
+            moved = d10(nxt) - d10(sched)
+            note.set(f("due"), (d10(due) + moved).isoformat() + due[10:])
+        except ValueError:
+            pass
 
 
 def sanitize_title(title):
@@ -722,12 +788,52 @@ def op_create(vault, req, day):
         n = norm_tag(t)
         if n and n.lower() not in [x.lower() for x in tags]:
             tags.append(n)
+    for r in as_list(fields.get("reminders")):
+        if isinstance(r, dict):
+            keys = ["id", "type"] + (["relatedTo", "offset"] if r.get("type") == "relative" else ["absoluteTime"]) + ["description"]
+            note.set(f("reminders"), [{k: str(x[k]) for k in keys if x.get(k) not in (None, "")}
+                                     for x in as_list(fields.get("reminders")) if isinstance(x, dict)])
+            break
     if s.id_method == "property" and s.prop_name:
         note.set(s.prop_name, s.prop_value)
     if tags:
         note.set("tags", tags)
+    if fields.get("body"):
+        note.body = "\n" + str(fields["body"]).replace("\r\n", "\n").strip("\n") + "\n"
     vault.write(rel, note.render(), create=True)
     return result(task_for(vault, rel, day))
+
+
+def op_duplicate(vault, req, day):
+    """A fresh, open copy of a task: same properties, reminders and notes;
+    no completion history, no dependencies."""
+    import time as _time
+    s = vault.settings
+    f = s.f
+    rel = req["path"]
+    text, note, data = load(vault, rel)
+    t = build(vault, rel, data, day)   # from the note as read now, not the scan cache
+    rec = str(data.get(f("recurrence")) or "")
+    rec = re.sub(r"DTSTART:[^;]+;?", "", rec).strip()
+    rems = []
+    for i, r in enumerate(as_list(data.get(f("reminders")))):
+        if isinstance(r, dict):
+            r = dict(r)
+            r["id"] = "rem_%d_%d" % (int(_time.time() * 1000), i)
+            rems.append(r)
+    fields = {
+        "title": t["title"] + " (copy)",
+        "priority": t["priority"],
+        "due": data.get(f("due")) or "",
+        "scheduled": data.get(f("scheduled")) or "",
+        "contexts": t["contexts"],
+        "projects": t["projectsRaw"],
+        "tags": t["tags"],
+        "recurrence": rec,
+        "reminders": rems,
+        "body": note.body,
+    }
+    return op_create(vault, {"fields": fields}, day)
 
 
 def base36(n):
@@ -804,6 +910,7 @@ OPS = {
     "skipInstance": op_skip,
     "archive": op_archive,
     "create": op_create,
+    "duplicate": op_duplicate,
     "delete": op_delete,
     "body": op_body,
     "saveBody": op_save_body,

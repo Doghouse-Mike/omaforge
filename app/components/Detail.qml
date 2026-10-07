@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import ".."
 import "../views.js" as V
 import "../dates.js" as D
+import "../recur.js" as R
 
 // Editor for one task. Every control writes one field via Backend.update,
 // which compare-and-swaps against the value shown here.
@@ -273,20 +274,66 @@ Rectangle {
         Txt { text: "Scheduled"; color: Theme.faint }
         DateRow { field: "scheduled"; Layout.fillWidth: true }
 
-        Txt { text: "Repeats"; color: Theme.faint; visible: !!(d.task && d.task.recurring) }
+        Txt { text: "Repeats"; color: Theme.faint; Layout.alignment: Qt.AlignTop; topPadding: 6 }
         Column {
-          visible: !!(d.task && d.task.recurring)
           Layout.fillWidth: true
           spacing: 6
-          Txt { text: d.task ? (d.task.recurrenceText || d.task.recurrence || "") : ""; width: parent.width }
+          Row {
+            spacing: 4
+            Field {
+              id: recField
+              width: Theme.px(230)
+              tabbable: true
+              ctx: d.task
+              placeholder: "every weekday, every 2 weeks on fri…"
+              text: d.task && d.task.recurrence ? R.describe(d.task.recurrence) : ""
+              onEscaped: d.leave()
+              onCommitted: (v, t) => {
+                var r = R.parse(v, new Date())
+                if (r.error) { Backend.notice("warn", r.error); input.text = t && t.recurrence ? R.describe(t.recurrence) : ""; return }
+                d.set("recurrence", r.clear ? "" : r.rule, t)
+              }
+            }
+            Btn {
+              id: recPresetBtn
+              quiet: true; text: "▾"; tip: "Common repeats"
+              implicitHeight: recField.height
+              onClicked: { var p = recPresetBtn.mapToItem(null, 0, recPresetBtn.height); d.requestMenu(d.repeatPresets(), p.x, p.y) }
+            }
+          }
+          Txt {
+            readonly property var pv: recField.input.activeFocus && recField.input.text !== recField._initial && recField.input.text.trim() !== ""
+                                       ? R.parse(recField.input.text, new Date()) : null
+            visible: !!pv
+            text: !pv ? "" : pv.clear ? "→ doesn't repeat" : pv.error ? "? " + pv.error : "→ " + pv.text
+            color: pv && pv.error ? Theme.yellow : Theme.accent
+            font.pixelSize: Theme.fsSmall
+            width: parent.width; wrapMode: Text.Wrap; elide: Text.ElideNone
+          }
+          Row {
+            visible: !!(d.task && d.task.recurring)
+            spacing: 4
+            Txt { text: "Next one counts from"; color: Theme.faint; font.pixelSize: Theme.fsSmall; height: Theme.px(24) }
+            Btn {
+              implicitHeight: Theme.px(24); text: "the schedule"
+              active: !!(d.task && (d.task.raw.recurrenceAnchor || d.task.props.recurrence_anchor) !== "completion")
+              onClicked: d.set("recurrenceAnchor", "scheduled")
+            }
+            Btn {
+              implicitHeight: Theme.px(24); text: "when done"
+              active: !!(d.task && (d.task.props.recurrence_anchor === "completion"))
+              onClicked: d.set("recurrenceAnchor", "completion")
+            }
+          }
           Row {
             spacing: 6
-            visible: !!(d.task && d.task.occurrence)
-            Txt { text: d.task && d.task.occurrence ? "Next: " + V.prettyDate(d.task.occurrence, Backend.today) : ""; color: Theme.faint }
+            visible: !!(d.task && d.task.recurring && d.task.occurrence)
+            Txt { text: d.task && d.task.occurrence ? "Next: " + V.prettyDate(d.task.occurrence, Backend.today) : ""; color: Theme.faint; height: Theme.px(26) }
             Btn { text: "Done"; onClicked: Backend.toggleComplete(d.task, "") }
             Btn { text: "Skip"; onClicked: Backend.skip(d.task, "") }
           }
           Txt {
+            visible: !!(d.task && d.task.recurring)
             text: d.task ? (d.task.completeInstances || []).length + " done, " + (d.task.skippedInstances || []).length + " skipped" : ""
             color: Theme.faint; font.pixelSize: Theme.fsSmall
           }
@@ -367,17 +414,38 @@ Rectangle {
           }
         }
 
-        Txt { text: "Blocked by"; color: Theme.faint; visible: !!(d.task && d.task.blockedBy && d.task.blockedBy.length) }
+        Txt { text: "Blocked by"; color: Theme.faint; Layout.alignment: Qt.AlignTop; topPadding: 4 }
         Column {
-          visible: !!(d.task && d.task.blockedBy && d.task.blockedBy.length)
           Layout.fillWidth: true
+          spacing: 2
           Repeater {
             model: d.task ? d.task.blockedBy : []
-            Txt {
+            Row {
               required property var modelData
-              text: (modelData.done ? "✓ " : "• ") + modelData.title
-              color: modelData.done ? Theme.faint : Theme.fg
+              required property int index
+              spacing: 6
+              Txt {
+                height: Theme.px(22)
+                text: (modelData.done ? "✓ " : "⛔ ") + modelData.title + (modelData.path ? "" : "  (not found)")
+                color: modelData.done ? Theme.faint : Theme.fg
+              }
+              Btn { quiet: true; text: "✕"; tip: "Remove"; implicitHeight: Theme.px(22); onClicked: d.setBlockers(d.blockersExcept(index)) }
             }
+          }
+          Btn {
+            id: addBlockBtn
+            quiet: true; text: "+ blocked by…"
+            onClicked: d.pickBlocker(addBlockBtn)
+          }
+        }
+
+        Txt { text: "Blocking"; color: Theme.faint; visible: d.blocking.length > 0; Layout.alignment: Qt.AlignTop }
+        Column {
+          visible: d.blocking.length > 0
+          Layout.fillWidth: true
+          Repeater {
+            model: d.blocking
+            Txt { required property var modelData; text: "→ " + modelData.title; color: modelData.done ? Theme.faint : Theme.fg }
           }
         }
       }
@@ -447,6 +515,64 @@ Rectangle {
         text: d.task ? d.task.path + (d.task.dateCreated ? "\ncreated " + V.d10(d.task.dateCreated) : "") + (d.task.dateModified ? " · modified " + V.d10(d.task.dateModified) : "") : ""
       }
     }
+  }
+
+  // Repeats -------------------------------------------------------------------
+  function weekdayOf(v) { var a = (v || Backend.today).slice(0, 10).split("-"); return new Date(+a[0], +a[1] - 1, +a[2]) }
+  function repeatPresets() {
+    var base = weekdayOf(d.task && (d.task.scheduled || d.task.due))
+    var dn = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][base.getDay()]
+    var mons = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    var set = function (text) { return function () { var r = R.parse(text, new Date()); d.set("recurrence", r.clear ? "" : r.rule) } }
+    var cur = d.task && d.task.recurrence ? d.task.recurrence : ""
+    var items = [
+      { text: "Every day", action: set("daily") },
+      { text: "Every weekday", action: set("weekdays") },
+      { text: "Every week on " + dn, action: set("every week on " + dn) },
+      { text: "Every other week on " + dn, action: set("every 2 weeks on " + dn) },
+      { text: "Every month on the " + R.ordinal(base.getDate()), action: set("monthly on the " + base.getDate()) },
+      { text: "Every year on " + base.getDate() + " " + mons[base.getMonth()], action: set("every year on " + base.getDate() + " " + mons[base.getMonth()]) },
+      { separator: true },
+      { text: "Doesn't repeat", enabled: !!cur, action: set("none") }]
+    return items
+  }
+
+  // Dependencies ----------------------------------------------------------------
+  // The raw blockedBy entries, as dicts the core can write back unchanged.
+  function rawBlockers() {
+    var raw = d.task && d.task.raw ? d.task.raw.blockedBy : null
+    return (Array.isArray(raw) ? raw : raw ? [raw] : []).map(function (b) { return typeof b === "string" ? { uid: b } : b })
+  }
+  function blockersExcept(i) { var l = rawBlockers(); l.splice(i, 1); return l }
+  function setBlockers(list) { d.set("blockedBy", list) }
+  // Tasks that list this one in their blockedBy.
+  readonly property var blocking: {
+    Backend.revision
+    if (!d.task) return []
+    var out = []
+    for (var p in Backend.tasks) {
+      var t = Backend.tasks[p]
+      if (t.error || !t.blockedBy) continue
+      for (var i = 0; i < t.blockedBy.length; i++) if (t.blockedBy[i].path === d.task.path) { out.push(t); break }
+    }
+    return out
+  }
+  function pickBlocker(anchor, forTask) {
+    var task = forTask || d.task
+    var already = (task.blockedBy || []).map(function (b) { return b.path })
+    var opts = []
+    for (var p in Backend.tasks) {
+      var t = Backend.tasks[p]
+      if (t.error || t.archived || t.path === task.path || already.indexOf(t.path) >= 0) continue
+      opts.push({ label: t.title, sub: (t.done ? "done · " : "") + (t.projects || []).concat((t.contexts || []).map(function (c) { return "@" + c })).join("  "), value: t.path, done: t.done })
+    }
+    opts.sort(function (a, b) { return (a.done - b.done) || a.label.localeCompare(b.label) })
+    Backend.picker.open(anchor, "Blocked by which task?", opts, function (path) {
+      var raw = task.raw ? task.raw.blockedBy : null
+      var list = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(function (b) { return typeof b === "string" ? { uid: b } : b })
+      list.push({ path: path })
+      Backend.update(task, { blockedBy: list })
+    })
   }
 
   // Default time from Settings, for dates picked without one.

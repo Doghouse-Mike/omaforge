@@ -37,11 +37,15 @@ like, not as a finished product.
   - Today, Upcoming, All open, Completed and Archived lists, plus projects,
     contexts and tags
   - list and board layouts, and a full task editor
-  - repeating tasks: complete or skip an occurrence
+  - repeating tasks: complete or skip an occurrence, and set the repeat in
+    plain English ("every weekday", "every 2 weeks on fri", "monthly on the
+    1st", "every last friday")
+  - "blocked by" dependencies, set with a task picker, plus a "Blocking" list
   - archive and delete (to the trash)
   - your Obsidian **Bases** views (`.base` files) evaluated live, and a view
     editor that writes new ones
-  - right-click menus
+  - right-click menus: status, priority, dates, move to project, blocked by,
+    duplicate, copy as Markdown, archive and more
   - natural-language dates and times with a calendar picker
   - **notifications** for TaskNotes reminders, timed tasks, a morning summary
     and an overdue nudge
@@ -49,12 +53,11 @@ like, not as a finished product.
 - **Not yet:**
   - calendar grids
   - time tracking and pomodoro
-  - editing repeat rules or "blocked by" (both shown read-only)
   - editing hand-made `.base` views
   - manual drag ordering
   - quick-add parsing of whole sentences (dates are parsed; titles aren't)
 - **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.13.8
-  itself, running in Obsidian, for 24 operations. Its views are compared with
+  itself, running in Obsidian, for 33 operations. Its views are compared with
   Obsidian's own Bases engine across 155 cases. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
   [Matching TaskNotes exactly](#matching-tasknotes-exactly).
@@ -195,6 +198,25 @@ buttons offer your default, 12:00, 15:00 and 18:00.
 
 `node tools/dates-test.mjs` runs the date reader against a fixed clock.
 
+### Repeats
+
+The task pane's **Repeats** box reads rules in plain English. It shows what it
+understood as you type, and ▾ offers the common ones:
+
+| You type | Becomes |
+|---|---|
+| `daily`, `every 3 days`, `weekdays`, `weekends` | every day / 3 days / Mon–Fri / Sat–Sun |
+| `every monday`, `every mon and thu`, `every 2 weeks on fri`, `fortnightly` | weekly patterns |
+| `monthly on the 1st`, `every 15th`, `last day of the month`, `every last friday`, `every first monday` | monthly patterns |
+| `every year on 1 jan`, `annually on 25 december` | yearly |
+| `… until 1 jan 2027`, `… for 10 times`, `weekly x5` | an end date or a count |
+| `none` | stop repeating |
+
+Setting a repeat follows TaskNotes' own rules: the task is scheduled for the
+first matching day from today, due moves with it, and completed occurrences
+are kept. **Next one counts from** chooses whether the next occurrence follows
+the schedule or the day you actually complete it.
+
 ## How it stays safe with your vault
 
 - **Line-level edits.** A change rewrites only the lines of the fields it
@@ -233,6 +255,7 @@ including odd titles, recurrence and filename collisions.
 ```bash
 cd core && python3 -m unittest            # unit tests (synthetic temp vaults)
 node tools/dates-test.mjs                 # the date reader, against a fixed clock
+node tools/recur-test.mjs                 # the repeat-rule reader
 
 # These two drive TaskNotes and Obsidian through the Obsidian CLI. Use a
 # throwaway copy of a vault, open in Obsidian:

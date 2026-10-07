@@ -32,6 +32,12 @@ ShellRoot {
       list.ensureVisible()
     }
     function settings(): void { settingsDlg.open() }
+    function pickBlocker(): void { detail.pickBlocker(null) }
+    function pickerFilter(text: string): string { picker.open === undefined; return JSON.stringify(picker.shown.map(function (o) { return o.label })) }
+    function pickerChoose(label: string): string {
+      for (var i = 0; i < picker.shown.length; i++) if (picker.shown[i].label === label) { picker.choose(i); return "ok" }
+      return "not in list"
+    }
     function picker(value: string): void { datePicker.open({ x: 300, y: 120 }, value, function (v) { Backend.notice("info", "picked " + v) }) }
     function pickerKey(k: string): void {
       var m = { left: Qt.Key_Left, right: Qt.Key_Right, down: Qt.Key_Down, pgdn: Qt.Key_PageDown, enter: Qt.Key_Return, n: Qt.Key_N, t: Qt.Key_T }
@@ -51,8 +57,16 @@ ShellRoot {
       ctxMenu.open(root.width / 3, root.height / 3, items)
       return JSON.stringify(items.map(function (i) { return i.separator ? "—" : (i.text + (i.enabled === false ? " (off)" : "") + (i.submenu ? " ›" : "")) }))
     }
+    // "Item" or "Submenu/Item"
     function menuPick(text: string): string {
-      for (var i = 0; i < ctxMenu.items.length; i++) if (ctxMenu.items[i].text === text) { ctxMenu.activate(i); return "ok" }
+      var parts = text.split("/")
+      for (var i = 0; i < ctxMenu.items.length; i++) if (ctxMenu.items[i].text === parts[0]) {
+        ctxMenu.activate(i)
+        if (parts.length === 1) return "ok"
+        var sub = ctxMenu.sub
+        for (var j = 0; j < sub.items.length; j++) if (sub.items[j].text === parts[1]) { sub.activate(j); return "ok" }
+        return "no such sub-item"
+      }
       return "no such item"
     }
     function select(n: int): void { var t = root.flatTasks[n]; if (t) root.selectedPath = t.path }
@@ -273,14 +287,44 @@ ShellRoot {
         }
         items.push({ text: "Due", icon: "󰥔", submenu: dateMenu("due") })
         items.push({ text: "Scheduled", icon: "󰃭", submenu: dateMenu("scheduled") })
+        // Projects: replace with one (the common case); "Other…" searches or
+        // takes a new name.
+        var setProject = function (name) { Backend.update(t, { projects: name ? ["[[" + name + "]]"] : [] }) }
+        var projItems = V.facetCounts(Backend.tasks, "projects").map(function (p) {
+          return { text: p.name, checked: (t.projects || []).indexOf(p.name) >= 0, action: function () { setProject(p.name) } }
+        })
+        if (projItems.length) projItems.push({ separator: true })
+        projItems.push({ text: "Other…", icon: "󰍉", action: function () {
+          var opts = V.facetCounts(Backend.tasks, "projects").map(function (p) { return { label: p.name, value: p.name } })
+          picker.open({ x: ctxMenu.at.x, y: ctxMenu.at.y }, "Move to which project?", opts, function (v) { setProject(v) }, { free: true })
+        } })
+        projItems.push({ text: "No project", enabled: (t.projects || []).length > 0, action: function () { setProject("") } })
+        items.push({ text: "Move to project", icon: "󰉋", submenu: projItems })
+        items.push({ text: "Blocked by…", icon: "⛔", action: function () { detail.pickBlocker({ x: ctxMenu.at.x, y: ctxMenu.at.y }, t) } })
         items.push({ separator: true })
         items.push({ text: "Edit", icon: "✎", hint: "Enter", action: function () { root.selectedPath = t.path; root.detailOpen = true; root.overlayDetail = true; detail.focusFirst() } })
         items.push({ text: "Open in Obsidian", icon: "󰏌", hint: "o", action: function () { root.openInObsidian(t) } })
         items.push({ text: "Copy link", icon: "󰌷", action: function () { root.copyText("[[" + t.path.replace(/^.*\//, "").replace(/\.md$/, "") + "]]") } })
+        items.push({ text: "Copy as Markdown", icon: "󰍔", action: function () { root.copyText(root.taskMarkdown(t)) } })
+        items.push({ text: "Duplicate", icon: "󰆏", action: function () {
+          Backend.duplicate(t, function (r) { if (r.ok) { root.selectedPath = r.result.path; Backend.notice("info", "Duplicated as \"" + r.result.task.title + "\"") } })
+        } })
         items.push({ separator: true })
         items.push({ text: t.archived ? "Unarchive" : "Archive", icon: "󰆧", action: function () { Backend.archive(t, !t.archived) } })
         items.push({ text: "Delete…", icon: "󰆴", danger: true, action: function () { confirm.task = t; confirm.visible = true } })
         return items
+      }
+      // "- [ ] [[Note|Title]] — due Fri 9 Oct, @home, #tag" (Obsidian-ready)
+      function taskMarkdown(t) {
+        var name = t.path.replace(/^.*\//, "").replace(/\.md$/, "")
+        var link = name === t.title ? "[[" + name + "]]" : "[[" + name + "|" + t.title + "]]"
+        var bits = []
+        if (t.due) bits.push("due " + V.prettyDate(t.due, Backend.today))
+        if (t.scheduled && !t.recurring) bits.push("scheduled " + V.prettyDate(t.scheduled, Backend.today))
+        if (t.recurring) bits.push(t.recurrenceText.toLowerCase())
+        ;(t.contexts || []).forEach(function (c) { bits.push("@" + c) })
+        ;(t.tags || []).forEach(function (g) { bits.push("#" + g) })
+        return "- [" + (t.done ? "x" : " ") + "] " + link + (bits.length ? " — " + bits.join(", ") : "")
       }
       function openTaskMenuForSelected() {
         var t = selectedTask
@@ -320,7 +364,7 @@ ShellRoot {
       }
 
       function handleKey(key, modifiers) {
-        if (datePicker.visible) return false
+        if (datePicker.visible || picker.visible) return false
         if (settingsDlg.visible) {
           if (key === Qt.Key_Escape) { settingsDlg.close(); return true }
           return false
@@ -609,6 +653,11 @@ ShellRoot {
         onSaved: id => root.pickView(id)
         onDeleted: f => { if (root.currentBase === null || root.currentBase.file === f) root.pickView("today") }
         onClosed: root.forceActiveFocus()
+      }
+
+      Picker {
+        id: picker
+        Component.onCompleted: Backend.picker = picker
       }
 
       DatePicker {

@@ -19,6 +19,7 @@ Singleton {
   property var tasks: ({})
   property var views: []
   property var datePicker: null   // set by the window (shared DatePicker)
+  property var picker: null       // set by the window (shared Picker)
   property var prefs: ({ dates: { defaultTime: "09:00", useDefaultTime: true } })          // .base views (core/omaforge/bases.py descriptors)
   property int revision: 0
   property string today: ""
@@ -110,6 +111,7 @@ Singleton {
   function setStatus(task, status, cb) { request("setStatus", { path: task.path, status: status, expect: task.expect }, cb) }
   function archive(task, on, cb) { request("archive", { path: task.path, on: on, expect: task.expect }, cb) }
   function skip(task, date, cb) { request("skipInstance", { path: task.path, date: date, expect: task.expect }, cb) }
+  function duplicate(task, cb) { request("duplicate", { path: task.path }, cb) }
   function create(fields, cb) { request("create", { fields: fields }, cb) }
   function remove(task, cb) { request("delete", { path: task.path, expect: task.expect }, cb) }
   function body(task, cb) { request("body", { path: task.path }, cb) }
