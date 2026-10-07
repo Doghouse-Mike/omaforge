@@ -1,0 +1,9 @@
+filters:
+  and:
+    - file.hasTag("task")
+views:
+  - type: tasknotesKanban
+    name: Kanban
+    groupBy:
+      property: status
+      direction: ASC

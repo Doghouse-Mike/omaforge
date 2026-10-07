@@ -1,0 +1,26 @@
+#!/bin/bash
+# Obsidian CLI pinned to a disposable TEST vault (never one you care about).
+# The vault is named by OMAFORGE_TEST_VAULT_NAME (or the folder name of
+# OMAFORGE_TEST_VAULT).
+# Calls electron directly: the packaged `obsidian` wrapper prepends
+# user-flags.conf, which the CLI then misreads as the command name.
+#
+# SAFETY: if the requested vault isn't open, Obsidian silently runs the
+# command in whichever vault IS open (2026-10-07: this created two test notes
+# in the real vault). So every call first asks Obsidian which vault it would
+# act on, and refuses unless it's the one requested.
+VAULT="${OMAFORGE_TEST_VAULT_NAME:-$(basename "${OMAFORGE_TEST_VAULT:-}")}"
+[ -n "$VAULT" ] || { echo "obsidian-test: set OMAFORGE_TEST_VAULT (or OMAFORGE_TEST_VAULT_NAME)" >&2; exit 2; }
+run() { timeout 30 electron43 /usr/lib/obsidian/app.asar "$@" vault="$VAULT" 2> >(grep -v -iE "gpu|dbus|^\[[0-9]|ERROR:|Gtk|libva" >&2); }
+# An empty answer is the CLI dropping a slow reply, not a mismatch: retry.
+for _ in 1 2 3 4 5; do
+  actual="$(run eval code='app.vault.getName()' | sed -n 's/^=> //p')"
+  [ -n "$actual" ] && break
+  sleep 0.5
+done
+if [ "$actual" != "$VAULT" ]; then
+  echo "obsidian-test: REFUSING — asked for vault \"$VAULT\" but Obsidian would act on \"${actual:-<nothing>}\"." >&2
+  echo "obsidian-test: open \"$VAULT\" in Obsidian first." >&2
+  exit 3
+fi
+run "$@"

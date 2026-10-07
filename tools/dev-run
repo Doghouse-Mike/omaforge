@@ -1,0 +1,14 @@
+#!/bin/bash
+# Restart OmaForge from this checkout against the test vault; log to $1 (or /tmp).
+APP="$(dirname "$(readlink -f "$0")")/../app"
+LOG="${1:-${TMPDIR:-/tmp}/omaforge-dev.log}"
+P=$(pgrep -f '^qs -p (app|.*omaforge/app)( |$)') && kill $P && sleep 0.5
+VAULT="${OMAFORGE_VAULT:-${OMAFORGE_TEST_VAULT:-}}"
+[ -n "$VAULT" ] || { echo "dev-run: set OMAFORGE_TEST_VAULT (a disposable vault copy)" >&2; exit 2; }
+(OMAFORGE_VAULT="$VAULT" setsid qs -p "$(readlink -f "$APP")" -n >"$LOG" 2>&1 &)
+for i in $(seq 1 30); do
+  hyprctl clients -j | grep -q '"class": "omaforge"' && break; sleep 0.2
+done
+sleep 1.5
+sed 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -E "WARN|ERROR|error|Error" | grep -v portal
+exit 0

@@ -1,0 +1,22 @@
+filters:
+  and:
+    - file.hasTag("task")
+views:
+  - type: tasknotesTaskList
+    name: Errands
+    filters:
+      and:
+        - status != "done"
+        - list(contexts).contains("errands")
+    order:
+      - status
+      - priority
+      - due
+      - scheduled
+      - projects
+      - contexts
+      - file.tags
+      - file.name
+    sort:
+      - property: due
+        direction: ASC

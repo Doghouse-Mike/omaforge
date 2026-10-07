@@ -1,0 +1,30 @@
+{
+  "tasksFolder": "TaskNotes/Tasks",
+  "archiveFolder": "TaskNotes/Archive",
+  "moveArchivedTasks": true,
+  "taskTag": "task",
+  "taskIdentificationMethod": "tag",
+  "storeTitleInFilename": true,
+  "taskFilenameFormat": "title",
+  "defaultTaskStatus": "open",
+  "defaultTaskPriority": "normal",
+  "excludedFolders": "",
+  "fieldMapping": {
+    "recurrenceAnchor": "recurrence_anchor",
+    "completeInstances": "complete_instances",
+    "skippedInstances": "skipped_instances",
+    "archiveTag": "archived"
+  },
+  "customStatuses": [
+    {"id": "open", "value": "open", "label": "Open", "color": "#808080", "isCompleted": false, "order": 0},
+    {"id": "in-progress", "value": "in-progress", "label": "In progress", "color": "#0066cc", "isCompleted": false, "order": 1},
+    {"id": "done", "value": "done", "label": "Done", "color": "#00aa00", "isCompleted": true, "order": 2}
+  ],
+  "customPriorities": [
+    {"id": "none", "value": "none", "label": "None", "color": "#cccccc", "weight": 0},
+    {"id": "low", "value": "low", "label": "Low", "color": "#00aa00", "weight": 1},
+    {"id": "normal", "value": "normal", "label": "Normal", "color": "#ffaa00", "weight": 2},
+    {"id": "high", "value": "high", "label": "High", "color": "#ff0000", "weight": 3}
+  ],
+  "savedViews": []
+}

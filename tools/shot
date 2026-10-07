@@ -1,0 +1,24 @@
+#!/bin/bash
+# Screenshot ONLY the OmaForge window to $1. Refuses unless exactly one
+# omaforge window exists and it's on the active workspace and unobscured
+# (grim captures screen pixels, so anything overlapping would be captured).
+python3 -I - "$1" <<'PY'
+import json, subprocess, sys
+clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
+mine = [c for c in clients if c["class"] == "omaforge" and c["mapped"] and not c["hidden"]]
+if len(mine) != 1:
+    sys.exit("shot: expected one omaforge window, found %d" % len(mine))
+w = mine[0]
+active = json.loads(subprocess.run(["hyprctl", "activeworkspace", "-j"], capture_output=True, text=True).stdout)
+if w["workspace"]["id"] != active["id"]:
+    sys.exit("shot: omaforge isn't on the visible workspace")
+x, y = w["at"]; W, H = w["size"]
+for c in clients:
+    if c is w or c["workspace"]["id"] != w["workspace"]["id"] or not c["floating"]:
+        continue
+    cx, cy = c["at"]; cw, ch = c["size"]
+    if cx < x + W and cx + cw > x and cy < y + H and cy + ch > y:
+        sys.exit("shot: a floating window overlaps omaforge")
+subprocess.run(["grim", "-g", "%d,%d %dx%d" % (x, y, W, H), sys.argv[1]], check=True)
+print("%dx%d" % (W, H))
+PY

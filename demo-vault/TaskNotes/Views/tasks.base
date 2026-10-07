@@ -1,0 +1,60 @@
+# Task views in TaskNotes' style (Obsidian Bases). OmaForge reads these but
+# never rewrites them, because it didn't write them.
+filters:
+  and:
+    - file.hasTag("task")
+formulas:
+  priorityWeight: 'if(priority=="none",0,if(priority=="low",1,if(priority=="normal",2,if(priority=="high",3,0))))'
+views:
+  - type: tasknotesTaskList
+    name: Today
+    filters:
+      and:
+        - or:
+            - and:
+                - recurrence.isEmpty()
+                - status != "done"
+            - and:
+                - recurrence
+                - complete_instances.map(date(value).format("YYYY-MM-DD")).contains(today().format("YYYY-MM-DD")) != true
+        - or:
+            - date(due).date() == today()
+            - date(scheduled).date() == today()
+    sort:
+      - property: formula.priorityWeight
+        direction: DESC
+  - type: tasknotesTaskList
+    name: Overdue
+    filters:
+      and:
+        - status != "done"
+        - date(due).date() < today()
+    sort:
+      - property: due
+        direction: ASC
+  - type: tasknotesTaskList
+    name: This week
+    filters:
+      and:
+        - status != "done"
+        - or:
+            - and:
+                - date(due).date() >= today()
+                - date(due).date() <= today() + "7 days"
+            - and:
+                - date(scheduled).date() >= today()
+                - date(scheduled).date() <= today() + "7 days"
+    sort:
+      - property: due
+        direction: ASC
+  - type: tasknotesTaskList
+    name: Not blocked
+    filters:
+      and:
+        - status != "done"
+        - or:
+            - blockedBy.isEmpty()
+            - list(blockedBy).filter(file(value.uid).properties.status != "done").isEmpty()
+    groupBy:
+      property: status
+      direction: ASC

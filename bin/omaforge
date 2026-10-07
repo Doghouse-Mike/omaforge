@@ -1,0 +1,53 @@
+#!/bin/bash
+# OmaForge launcher: one instance; a second launch raises the existing window.
+#   omaforge [--vault PATH] [--new] [--demo [--reset]]
+#   --demo opens a fresh copy of the bundled demo vault (made-up tasks), with
+#   editing allowed; your config and vaults aren't touched.
+set -euo pipefail
+APP="$(dirname "$(readlink -f "$0")")/../app"
+APP="$(readlink -f "$APP")"
+CONFIG="${OMAFORGE_CONFIG:-$HOME/.config/omaforge/config.json}"
+
+vault="" new=0 demo=0 reset=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --vault) vault="$2"; shift 2 ;;
+    --new) new=1; shift ;;
+    --demo) demo=1; shift ;;
+    --reset) reset=1; shift ;;
+    -h|--help) sed -n '2,6p' "$0"; exit 0 ;;
+    *) echo "omaforge: unknown option $1" >&2; exit 2 ;;
+  esac
+done
+
+if [ "$demo" = 1 ]; then
+  if qs ipc -p "$APP" call omaforge state >/dev/null 2>&1; then
+    echo "omaforge: OmaForge is already running; close it (Ctrl+Q) first, then run --demo" >&2
+    exit 1
+  fi
+  DEMO="${XDG_STATE_HOME:-$HOME/.local/state}/omaforge/demo-vault"
+  if [ "$reset" = 1 ] || [ ! -d "$DEMO" ]; then
+    mkdir -p "$(dirname "$DEMO")"
+    python3 -I "$APP/../tools/make-demo" "$APP/../demo-vault" "$DEMO" >/dev/null
+    echo "omaforge: fresh demo vault at $DEMO"
+  fi
+  export OMAFORGE_DEMO_VAULT="$DEMO"
+  vault="$DEMO"
+fi
+
+if [ -z "$vault" ] && [ -f "$CONFIG" ]; then
+  vault="$(python3 -I -c 'import json,os,sys; print(os.path.expanduser(json.load(open(sys.argv[1])).get("vault","")))' "$CONFIG")"
+fi
+if [ -z "$vault" ]; then
+  echo "omaforge: no vault. Pass --vault PATH or set \"vault\" in $CONFIG" >&2
+  exit 2
+fi
+
+# Already running? Raise it instead of starting a second copy.
+if qs ipc -p "$APP" call omaforge show >/dev/null 2>&1; then
+  [ "$new" = 1 ] && qs ipc -p "$APP" call omaforge newTask >/dev/null 2>&1
+  exit 0
+fi
+
+export OMAFORGE_VAULT="$vault"
+exec qs -p "$APP" -n -d

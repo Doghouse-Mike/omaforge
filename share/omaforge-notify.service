@@ -1,0 +1,12 @@
+[Unit]
+Description=OmaForge notifications (TaskNotes reminders, timed tasks, daily summary)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 -I @CORE@/omaforge-notify
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target
