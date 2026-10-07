@@ -39,7 +39,22 @@ DEFAULTS = {
     "morningSummary": {"enabled": True, "time": "09:00"},
     "overdue": {"enabled": True, "time": "17:00"},
     "snoozeMinutes": 15,
+    # Omarchy's Do Not Disturb only lets through urgency=critical sent under
+    # notify-send's own app name; this sends reminders that way.
+    "breakThroughDnd": False,
 }
+
+OMARCHY_NOTIFY_STATE = os.path.expanduser("~/.local/state/omarchy/notifications.json")
+
+
+def omarchy_dnd():
+    """Is Omarchy's Do Not Disturb on? None if this isn't Omarchy (or unknown)."""
+    try:
+        with open(OMARCHY_NOTIFY_STATE, encoding="utf-8") as f:
+            v = json.load(f).get("dnd")
+        return bool(v) if v is not None else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def settings(cfg=None):
@@ -333,7 +348,11 @@ class Daemon:
         threading.Thread(target=self._send, args=(e,), daemon=True).start()
 
     def _send(self, e):
-        cmd = ["notify-send", "--app-name=OmaForge", "--icon=omaforge", "--wait"]
+        urgent = e["kind"] in ("reminder", "timed") and self.cfg.get("breakThroughDnd")
+        # Under DND, Omarchy only shows critical alerts from "notify-send" itself.
+        cmd = ["notify-send"] + ([] if urgent else ["--app-name=OmaForge"]) + ["--icon=omaforge", "--wait"]
+        if urgent:
+            cmd.append("--urgency=critical")
         if e["kind"] in ("reminder", "timed"):
             cmd += ["--expire-time=0", "--action=default=Open", "--action=done=Done",
                     "--action=snooze=Snooze %d min" % int(self.cfg.get("snoozeMinutes") or 15), "--action=open=Open"]
@@ -343,7 +362,11 @@ class Daemon:
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=12 * 3600)
             action = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
-        except (OSError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired) as ex:
+            log("notify-send failed for %s: %s" % (e["key"], ex))
+            return
+        if r.returncode != 0:
+            log("notify-send exited %d for %s: %s" % (r.returncode, e["key"], r.stderr.strip()))
             return
         if action:
             self.act(e, action)
@@ -401,8 +424,12 @@ def log(msg):
     print(msg, flush=True)
 
 
-def send_test():
-    notify_plain("OmaForge notifications are working", "This is a test from the settings panel.")
+def send_test(urgent=False):
+    if urgent:
+        subprocess.run(["notify-send", "--icon=omaforge", "--urgency=critical", "--",
+                        "OmaForge notifications are working", "This is a test from the settings panel."], capture_output=True)
+    else:
+        notify_plain("OmaForge notifications are working", "This is a test from the settings panel.")
 
 
 def main():
@@ -438,7 +465,7 @@ def date_prefs(cfg=None):
 
 
 def op_get(vault, req, day):
-    return {"settings": settings(), "dates": date_prefs(), "service": service_state()}
+    return {"settings": settings(), "dates": date_prefs(), "service": service_state(), "dnd": omarchy_dnd()}
 
 
 def op_set(vault, req, day):
@@ -455,12 +482,12 @@ def op_set(vault, req, day):
     conf["notifications"] = merged
     conf["dates"] = dates
     save_config(conf)
-    return {"settings": merged, "dates": dates, "service": service_state()}
+    return {"settings": merged, "dates": dates, "service": service_state(), "dnd": omarchy_dnd()}
 
 
 def op_test(vault, req, day):
-    send_test()
-    return {"service": service_state()}
+    send_test(bool(settings().get("breakThroughDnd")))
+    return {"service": service_state(), "dnd": omarchy_dnd()}
 
 
 OPS = {"getNotify": op_get, "setNotify": op_set, "testNotify": op_test}

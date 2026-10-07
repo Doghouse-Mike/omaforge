@@ -13,6 +13,7 @@ Rectangle {
   property var s: null
   property var dates: ({ defaultTime: "09:00", useDefaultTime: true })
   property var service: ({ active: "unknown", enabled: "unknown" })
+  property var dnd: null    // Omarchy's Do Not Disturb (null = unknown)
   property bool dirty: false
 
   function open() {
@@ -20,6 +21,7 @@ Rectangle {
       if (!r.ok) return
       dlg.s = r.result.settings
       dlg.dates = r.result.dates
+      dlg.dnd = r.result.dnd
       dlg.service = r.result.service
       dlg.dirty = false
       dlg.visible = true
@@ -141,6 +143,11 @@ Rectangle {
         }
       }
       Section {
+        title: "Break through Do Not Disturb"
+        hint: "Send reminders and timed tasks as urgent alerts, which Omarchy shows even with Do Not Disturb on. They then appear under \"notify-send\" rather than OmaForge."
+        Toggle { on: !!(dlg.s && dlg.s.breakThroughDnd); onToggled: v => { dlg.s.breakThroughDnd = v; dlg.touch() } }
+      }
+      Section {
         title: "Snooze"
         Txt { text: "Snooze button waits"; color: Theme.faint; height: Theme.px(26) }
         Field {
@@ -161,7 +168,14 @@ Rectangle {
           text: dlg.service.active === "active" ? "● Background service running" : "○ Background service " + dlg.service.active
           color: dlg.service.active === "active" ? Theme.green : Theme.yellow
         }
-        Btn { text: "Send a test"; quiet: true; onClicked: Backend.request("testNotify", {}, function (r) { if (r.ok) dlg.service = r.result.service }) }
+        Btn { text: "Send a test"; quiet: true; onClicked: Backend.request("testNotify", {}, function (r) { if (r.ok) { dlg.service = r.result.service; dlg.dnd = r.result.dnd } }) }
+      }
+      Txt {
+        visible: dlg.dnd === true
+        width: col.width
+        wrapMode: Text.Wrap; elide: Text.ElideNone
+        color: Theme.yellow
+        text: "⚠ Omarchy's Do Not Disturb is on: notifications go straight to the notification history" + (dlg.s && dlg.s.breakThroughDnd ? ", except reminders (set to break through)." : ". Turn it off, or switch on \"Break through Do Not Disturb\" above.")
       }
       Txt {
         width: col.width
