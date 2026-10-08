@@ -5,6 +5,9 @@ Seeds edge-case tasks into the TEST vault, then for every view in the
 vault's .base files plus a battery of expressions (including everything the
 view editor can generate), asks Obsidian which notes match (via a temporary
 table view) and compares with OmaForge's evaluator (app/bases.js under node).
+Views with a sort, plus SORTS below, are also compared for order: Obsidian's
+JSON output is in display order, checked against the app's computeBase
+(app/views.js) on the same notes.
 Cleans up after itself. Refuses to run against anything but the test vault.
 """
 import json
@@ -60,6 +63,28 @@ EXPRESSIONS = [
     '!list(contexts).contains("home")', 'list(contexts).contains("home") == false', 'contexts.contains("home") != true',
     '!due', '!date(due)', 'due == null', '!priority', '!!status', '!(status == "done")', '!recurrence',
     'date(due) <= today()', 'date(due) >= today()', 'date(due) > today()', 'date(due) != today()',
+    # min/max: an empty argument empties the result
+    'max(0, 10 - number(date(due))) == null', 'max(1, 2) == 2', 'min(5, -2, 3) == -2', 'max(0, nosuch) == null',
+]
+
+
+# Extra orderings, each over every #todo note.
+SORTS = [
+    [{"property": "due", "direction": "ASC"}],
+    [{"property": "due", "direction": "DESC"}],
+    [{"property": "scheduled", "direction": "ASC"}],
+    [{"property": "priority", "direction": "ASC"}],
+    [{"property": "priority", "direction": "DESC"}],
+    [{"property": "status", "direction": "ASC"}],
+    [{"property": "file.name", "direction": "ASC"}],
+    [{"property": "file.name", "direction": "DESC"}],
+    [{"property": "title", "direction": "ASC"}],
+    [{"property": "dateCreated", "direction": "DESC"}],
+    [{"property": "file.mtime", "direction": "DESC"}],
+    [{"property": "contexts", "direction": "ASC"}],
+    [{"property": "projects", "direction": "ASC"}],
+    [{"property": "status", "direction": "ASC"}, {"property": "due", "direction": "ASC"}],
+    [{"property": "priority", "direction": "DESC"}, {"property": "file.name", "direction": "ASC"}],
 ]
 
 
@@ -114,15 +139,15 @@ def wait_indexed(rel, timeout=30):
     raise RuntimeError("Obsidian never indexed %s" % rel)
 
 
-def query(rel, view):
+def query(rel, view, fmt="paths"):
     """Run Obsidian's base:query handler in-app and poll for the result: the
     CLI drops replies that take longer than about a second, and a query over
     a 4,000-note vault takes longer than that."""
-    key = json.dumps([rel, view])
+    key = json.dumps([rel, view, fmt])
     obs_eval('(()=>{window.__omfq=window.__omfq||{};const k=%s;window.__omfq[k]=null;'
-             'app.cli.handlers.get("base:query").handler({path:%s,view:%s,format:"paths"})'
+             'app.cli.handlers.get("base:query").handler({path:%s,view:%s,format:%s})'
              '.then(r=>{window.__omfq[k]={ok:String(r)}}).catch(e=>{window.__omfq[k]={err:String(e)}});return "kicked"})()'
-             % (json.dumps(key), json.dumps(rel), json.dumps(view)))
+             % (json.dumps(key), json.dumps(rel), json.dumps(view), json.dumps(fmt)))
     for _ in range(60):
         time.sleep(0.5)
         out = obs_eval("JSON.stringify(window.__omfq[%s])" % json.dumps(key))
@@ -130,6 +155,8 @@ def query(rel, view):
             res = json.loads(out)
             if "err" in res:
                 raise RuntimeError("base:query %s: %s" % (view, res["err"]))
+            if fmt == "json":     # rows in the view's display order
+                return json.loads(res["ok"])
             return sorted(p for p in res["ok"].splitlines() if p.endswith(".md"))
     raise RuntimeError("base:query %s timed out" % view)
 
@@ -149,6 +176,11 @@ def main():
             with open(os.path.join(VAULT, rel), "w") as f:
                 f.write(seed_text(fields))
             seeded.append(rel)
+        # Distinct modification times (a minute apart) so file.mtime sorts
+        # aren't decided by writes that landed within the same millisecond.
+        t0 = time.time() - 3600
+        for i, rel in enumerate(seeded):
+            os.utime(os.path.join(VAULT, rel), (t0 + 60 * i, t0 + 60 * i))
         for rel in seeded:
             wait_indexed(rel)
         v = Vault(VAULT)
@@ -156,30 +188,34 @@ def main():
         s = v.settings
         task_map = {t["path"]: t for t in tasks.all_tasks(v, tasks.today()) if not t["error"]}
 
-        cases = []  # (label, top_filters, formulas, view_filters, compiled filter)
+        cases = []  # (label, top_filters, formulas, view_filters, compiled filter, raw sort, compiled sort)
         for d in bases.all_views(v):
             if d.get("unsupported") or d["file"].startswith(PROBE_DIR):
                 continue
             with open(os.path.join(VAULT, d["file"])) as f:
                 raw = bases.load_base(f.read())
-            vf = next(x.get("filters") for x in raw["views"] if str(x.get("name")) == d["name"])
-            cases.append(("view %s › %s" % (d["fileName"], d["name"]), raw.get("filters"), raw.get("formulas"), vf, d["filter"]))
+            rv = next(x for x in raw["views"] if str(x.get("name")) == d["name"])
+            cases.append(("view %s › %s" % (d["fileName"], d["name"]), raw.get("filters"), raw.get("formulas"),
+                          rv.get("filters"), d["filter"], rv.get("sort"), d.get("sort")))
         comp = bases.Compiler({})
         top = {"and": ['file.hasTag("todo")']}
         for e in EXPRESSIONS:
-            cases.append(("expr " + e, top, None, {"and": [e]}, ["and", [comp.compile(top["and"][0]), comp.compile(e)]]))
+            cases.append(("expr " + e, top, None, {"and": [e]}, ["and", [comp.compile(top["and"][0]), comp.compile(e)]], None, None))
         for c in editor_conditions(s):
             e = bases.condition_expr(c, s)
             cases.append(("editor %s %s %s" % (c["field"], c["op"], c.get("value", "")), top, None, {"and": [e]},
-                          ["and", [comp.compile(top["and"][0]), comp.compile(e)]]))
+                          ["and", [comp.compile(top["and"][0]), comp.compile(e)]], None, None))
+        for srt in SORTS:
+            cases.append(("sort " + ", ".join("%s %s" % (x["property"], x["direction"].lower()) for x in srt), top, None, None,
+                          comp.compile(top["and"][0]), srt, [bases.sort_ast(x, comp) for x in srt]))
 
         # Obsidian's answers: one throwaway base per distinct (filters, formulas)
         # header, every case a table view in it; written once, indexed, queried.
-        expected = {}
+        expected, order, values = {}, {}, {}
         groups = {}
-        for i, (label, tf, fm, vf, _ast) in enumerate(cases):
+        for i, (label, tf, fm, vf, _ast, srt, _sast) in enumerate(cases):
             key = json.dumps([tf, fm], sort_keys=True)
-            groups.setdefault(key, (tf, fm, []))[2].append((i, label, vf))
+            groups.setdefault(key, (tf, fm, []))[2].append((i, label, vf, srt))
         for gi, (tf, fm, items) in enumerate(groups.values()):
             d = {}
             if tf:
@@ -187,18 +223,32 @@ def main():
             if fm:
                 d["formulas"] = fm
             d["views"] = []
-            for i, label, vf in items:
+            for i, label, vf, srt in items:
                 view = {"type": "table", "name": "P%d" % i}
                 if vf:
                     view["filters"] = vf
+                if srt:
+                    # Obsidian only sorts by a property that's also a shown
+                    # column, and its JSON carries only shown columns.
+                    props = [x.get("property") or x.get("column") for x in srt]
+                    view["order"] = ["file.name"] + [x for x in props if x != "file.name"]
+                    view["sort"] = srt
                 d["views"].append(view)
             probe = "%s/probe%d.base" % (PROBE_DIR, gi)
             with open(os.path.join(VAULT, probe), "w") as f:
                 f.write("\n".join(bases.dump(d)) + "\n")
             wait_indexed(probe)
             time.sleep(1)
-            for i, label, vf in items:
-                expected[label] = [p for p in query(probe, "P%d" % i) if p in task_map]
+            for i, label, vf, srt in items:
+                if srt:
+                    rows = [row for row in query(probe, "P%d" % i, "json") if row["path"] in task_map]
+                    order[label] = [row["path"] for row in rows]
+                    # JSON keys drop the "file."/"formula."/"note." prefix
+                    values[label] = {row["path"]: [row.get((x.get("property") or x.get("column")).split(".")[-1]) for x in srt]
+                                     for row in rows}
+                    expected[label] = sorted(order[label])
+                else:
+                    expected[label] = [p for p in query(probe, "P%d" % i) if p in task_map]
 
         payload = {"views": [{"id": c[0], "filter": c[4]} for c in cases], "tasks": task_map,
                    "now": int(time.time() * 1000)}
@@ -213,7 +263,29 @@ def main():
                   "\n      obsidian only: %s\n      omaforge only: %s" % (
                       sorted(os.path.basename(x) for x in e - g), sorted(os.path.basename(x) for x in g - e))))
         print("\n%d/%d match Obsidian" % (len(cases) - fails, len(cases)))
-        return fails
+
+        # Order: the app's own sort (views.js computeBase) on the notes Obsidian
+        # agreed belong in the view.
+        sorted_cases = [c for c in cases if c[5]]
+        payload = {"views": [{"id": c[0], "filter": c[4], "sort": c[6]} for c in sorted_cases], "tasks": task_map,
+                   "settings": s.public(), "today": T.isoformat(), "now": int(time.time() * 1000)}
+        mine = json.loads(subprocess.run(["node", os.path.join(HERE, "bases-order.mjs")], input=json.dumps(payload),
+                                         capture_output=True, text=True, check=True).stdout)
+        ofails = 0
+        for label, *_ in sorted_cases:
+            want = order[label]
+            have = [p for p in mine[label] if p in set(want)]
+            ok = have == want
+            ofails += not ok
+            msg = ""
+            if not ok:
+                at = next(i for i, (a, b) in enumerate(zip(want, have)) if a != b)
+                nm = lambda xs: ["%s %s" % (os.path.basename(x)[:-3][:24], values[label][x]) for x in xs]  # noqa: E731
+                msg = "\n      first difference at row %d of %d\n      obsidian: %s\n      omaforge: %s" % (
+                    at, len(want), nm(want[max(0, at - 1):at + 4]), nm(have[max(0, at - 1):at + 4]))
+            print("order %-56s %s%s" % (label[:56], "PASS" if ok else "FAIL", msg))
+        print("\n%d/%d sorted views in Obsidian's order" % (len(sorted_cases) - ofails, len(sorted_cases)))
+        return fails + ofails
     finally:
         for rel in seeded:
             try:

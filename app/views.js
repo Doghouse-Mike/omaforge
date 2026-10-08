@@ -354,7 +354,12 @@ function computeBase(bv, tasks, settings, today, opts) {
   var keys = {}
   function sortKey(t, i) {
     var k = t.path + "#" + i
-    if (!(k in keys)) keys[k] = B.sortValue(B.value(bv.sort[i].ast, t, byName, now))
+    if (!(k in keys)) {
+      // Obsidian sorts file.name without its extension ("Oracle weekly"
+      // before "Oracle weekly (copy)"), though the value itself has one.
+      keys[k] = bv.sort[i].key === "file.name" ? t.path.slice(t.path.lastIndexOf("/") + 1).replace(/\.md$/, "")
+        : B.sortValue(B.value(bv.sort[i].ast, t, byName, now))
+    }
     return keys[k]
   }
   list.sort(function (a, b) {
@@ -362,7 +367,9 @@ function computeBase(bv, tasks, settings, today, opts) {
       var c = B.compareValues(sortKey(a, i), sortKey(b, i))
       if (c) return bv.sort[i].dir === "desc" && !(sortKey(a, i) === null || sortKey(b, i) === null) ? -c : c
     }
-    return compareDefault(a, b, settings)
+    // Ties (and views with no sort) fall back to the full path, ascending
+    // whatever the direction, as Obsidian does (checked by tools/basestest.py).
+    return B.compareValues(a.path, b.path) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
   })
   var groups
   if (bv.layout === "dates") {

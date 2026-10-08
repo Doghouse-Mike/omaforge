@@ -187,14 +187,19 @@ function call(name, args, ctx, scope) {
   case "link": return { __link: true, path: String(a(0)) }
   case "number": {
     var v = a(0)
+    if (v === null || v === undefined) return null     // Obsidian: number(null) is null, not 0
     if (isDate(v)) return v.t
     if (typeof v === "boolean") return v ? 1 : 0
     var n = Number(v); return isNaN(n) ? null : n
   }
   case "string": { var s = a(0); return s === null ? "" : isDate(s) ? formatDate(s, "YYYY-MM-DD") : String(s) }
   case "min": case "max": {
-    var nums = args.map(function (x) { return ev(x, ctx, scope) }).filter(function (x) { return typeof x === "number" })
-    return nums.length ? Math[name].apply(null, nums) : null
+    // As Obsidian: any empty argument makes the result empty (so
+    // max(0, 10 - <no date>) is null, not 0); text is a type error.
+    var nums = args.map(function (x) { return ev(x, ctx, scope) })
+    if (!nums.length || nums.some(function (x) { return x === null || x === undefined })) return null
+    if (nums.some(function (x) { return typeof x !== "number" })) throw new Error("Type error in \"" + name + "\": expected numbers")
+    return Math[name].apply(null, nums)
   }
   case "file": return resolveFile(a(0), ctx)
   case "file.hasTag": return args.some(function (x) { return hasTag(ctx.task, ev(x, ctx, scope)) })
