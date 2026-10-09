@@ -242,7 +242,10 @@ ShellRoot {
         if (kind === "base") {
           var bv = (Backend.views || []).filter(function (v) { return v.id === id })[0]
           var mine = !!(bv && bv.model)
-          items.push({ text: "Edit view", icon: "✎", enabled: mine, hint: mine ? "" : "made in Obsidian — edit it there",
+          // Only a .base file OmaForge can regenerate exactly is editable here
+          // (hand-made, or edited in Obsidian since): a rewrite could lose
+          // something. Say so rather than greying out with no reason.
+          items.push({ text: "Edit view", icon: "✎", enabled: mine, hint: mine ? "" : "can't rewrite safely — duplicate it",
                        action: function () { root.pickView(id); viewEditor.openEdit(bv) } })
           items.push({ text: mine ? "Duplicate as new view" : "Duplicate as editable view", icon: "󰆏",
                        enabled: !!bv && !bv.unsupported, hint: bv && bv.unsupported ? "can't read this view" : "",
@@ -252,7 +255,7 @@ ShellRoot {
           items.push({ text: "Copy file path", icon: "󰆏", action: function () { root.copyText(bv.file) } })
           items.push({ separator: true })
           items.push({ text: "Delete view…", icon: "󰆴", danger: true, enabled: mine,
-                       hint: mine ? "" : "not made here",
+                       hint: mine ? "" : "delete it in Obsidian",
                        action: function () { viewEditor.openEdit(bv); viewEditor.deleteCurrent() } })
           return items
         }

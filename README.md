@@ -171,8 +171,12 @@ grouping and list or board. It's saved as its own `.base` file in
 it opens in Obsidian. Views made this way can be edited and deleted from
 OmaForge (**✎ Edit view**). Views you built by hand in Obsidian are never
 rewritten: OmaForge only touches a `.base` file it can regenerate exactly,
-so a rewrite can't lose anything. TaskNotes' older saved views (from its
-settings) are listed read-only.
+so a rewrite can't lose anything. For any other view, **Edit view** and
+**Delete view** are greyed out ("can't rewrite safely"). That includes a
+view made in OmaForge and later changed in Obsidian in a way OmaForge
+doesn't model, such as an extra view in the same file or a column change.
+This is deliberate, not a bug: duplicate it (below) or edit it in Obsidian.
+TaskNotes' older saved views (from its settings) are listed read-only.
 
 To change a hand-made view (TaskNotes' own Today, Overdue and so on),
 right-click it and pick **Duplicate as editable view**. The copy starts out
