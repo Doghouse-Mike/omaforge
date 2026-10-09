@@ -70,6 +70,8 @@ ShellRoot {
       return "no such item"
     }
     function create(title: string): void { root.createTask(title) }
+    function duplicateView(id: string): void { root.duplicateView(Backend.views.filter(function (v) { return v.id === id })[0]) }
+    function editorState(): string { return JSON.stringify({ visible: viewEditor.visible, model: viewEditor.model, notes: viewEditor.notes, count: viewEditor.previewCount, original: viewEditor.originalCount, error: viewEditor.previewError }) }
     function confirmDelete(): void { confirmBox.del() }
     function select(n: int): void { var t = root.flatTasks[n]; if (t) root.selectedPath = t.path }
     function press(key: string): string { return root.pressNamed(key) ? "ok" : "unknown key" }
@@ -198,6 +200,19 @@ ShellRoot {
       // was used last (and many views share tasks-default.base).
       function openBaseInObsidian(bv) { obsidianOpen(bv.file + "#" + bv.name) }
       function startNew() { newBar.visible = true; newField.input.forceActiveFocus() }
+      // A copy of any view as an OmaForge view: exact for ones made here; for
+      // hand-made ones the core maps what it can to editor rows and keeps the
+      // rest as written (see bases.closest_model).
+      function duplicateView(bv) {
+        if (bv.model) {
+          var m = JSON.parse(JSON.stringify(bv.model)); m.name = bv.name + " copy"
+          viewEditor.openNew(m)
+          return
+        }
+        Backend.closestModel(bv.file, bv.name, function (r) {
+          if (r.ok) viewEditor.openNew(r.result.model, { notes: r.result.notes, from: bv })
+        })
+      }
       function createTask(title) {
         title = title.trim()
         if (!title) return
@@ -229,11 +244,9 @@ ShellRoot {
           var mine = !!(bv && bv.model)
           items.push({ text: "Edit view", icon: "✎", enabled: mine, hint: mine ? "" : "made in Obsidian — edit it there",
                        action: function () { root.pickView(id); viewEditor.openEdit(bv) } })
-          items.push({ text: "Duplicate as new view", icon: "󰆏", enabled: mine,
-                       action: function () {
-                         var m = JSON.parse(JSON.stringify(bv.model)); m.name = bv.name + " copy"
-                         viewEditor.openNew(m)
-                       } })
+          items.push({ text: mine ? "Duplicate as new view" : "Duplicate as editable view", icon: "󰆏",
+                       enabled: !!bv && !bv.unsupported, hint: bv && bv.unsupported ? "can't read this view" : "",
+                       action: function () { root.duplicateView(bv) } })
           items.push({ separator: true })
           items.push({ text: "Open in Obsidian", icon: "󰏌", action: function () { root.openBaseInObsidian(bv) } })
           items.push({ text: "Copy file path", icon: "󰆏", action: function () { root.copyText(bv.file) } })

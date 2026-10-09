@@ -374,6 +374,10 @@ def bases_signature(vault):
 # The model the view editor edits:
 #   {name, match: all|any, conditions: [{field, op, value}], sort: {field, dir},
 #    group: field|"none", layout: list|board}
+# plus, for views copied from hand-made ones (see closest_model):
+#   a condition {field: "raw", op: "raw", value: <expression or and/or group>,
+#   label} kept exactly as written; sort {field: "raw", raw: [original sort
+#   entries]}; groupDir "DESC"; formulas {name: expression}.
 
 DATE_FIELDS = ("due", "scheduled", "completedDate")
 ORDER = ["status", "priority", "due", "scheduled", "projects", "contexts", "file.tags", "file.name"]
@@ -399,6 +403,10 @@ def date_value(v):
 def condition_expr(c, s):
     """One editor condition -> Bases expression string."""
     field, op, val = c.get("field"), c.get("op"), c.get("value")
+    if field == "raw":
+        if not val or not isinstance(val, (str, dict)):
+            raise ValueError("empty kept-as-written condition")
+        return val
     completed = [st["value"] for st in s.statuses if st.get("isCompleted")]
     if field == "status":
         if op == "open":
@@ -452,7 +460,9 @@ def view_dict(model, s):
         view["filters"] = {"or" if model.get("match") == "any" else "and": conds}
     view["order"] = list(ORDER)
     srt = model.get("sort") or {}
-    if srt.get("field") and srt["field"] != "none":
+    if srt.get("field") == "raw":
+        view["sort"] = srt.get("raw") or []
+    elif srt.get("field") and srt["field"] != "none":
         prop = "formula.priorityWeight" if srt["field"] == "priority" else \
             "file.name" if srt["field"] == "title" else srt["field"]
         view["sort"] = [{"property": prop, "direction": "DESC" if srt.get("dir") == "desc" else "ASC"}]
@@ -460,14 +470,17 @@ def view_dict(model, s):
     if model.get("layout") == "board":
         g = "status"
     if g != "none":
-        view["groupBy"] = {"property": g, "direction": "ASC"}
+        view["groupBy"] = {"property": g, "direction": model.get("groupDir") or "ASC"}
     return view
 
 
 def base_dict(model, s):
     d = {"filters": {"and": ['file.hasTag(%s)' % q(s.task_tag)]}}
-    if (model.get("sort") or {}).get("field") == "priority":
-        d["formulas"] = {"priorityWeight": priority_formula(s)}
+    formulas = dict(model.get("formulas") or {})
+    if (model.get("sort") or {}).get("field") == "priority" and "priorityWeight" not in formulas:
+        formulas["priorityWeight"] = priority_formula(s)
+    if formulas:
+        d["formulas"] = formulas
     d["views"] = [view_dict(model, s)]
     return d
 
@@ -566,28 +579,74 @@ def _parse_condition(expr, s):
     return None
 
 
+def expr_text(e):
+    """A filter (expression or and/or/not group) as one readable line."""
+    if isinstance(e, str):
+        return e
+    if isinstance(e, dict) and len(e) == 1:
+        k, items = next(iter(e.items()))
+        items = items if isinstance(items, list) else [items]
+        inner = [expr_text(x) for x in items]
+        if k == "not":
+            return "not (%s)" % " and ".join(inner)
+        return "(" + (" and " if k == "and" else " or ").join(inner) + ")"
+    return json.dumps(e)
+
+
+def raw_condition(e):
+    return {"field": "raw", "op": "raw", "value": e, "label": expr_text(e)}
+
+
+def as_condition(e, s):
+    """An expression the editor understands as a row, else kept as written."""
+    return (parse_condition(e, s) if isinstance(e, str) else None) or raw_condition(e)
+
+
+EDITOR_SORTS = {"due", "scheduled", "status", "dateCreated", "completedDate"}
+
+
 def model_from_view(v, d, s):
     f = v.get("filters")
     match, conds = "all", []
     if f:
-        if not (isinstance(f, dict) and len(f) == 1 and list(f)[0] in ("and", "or")):
-            return None
-        match = "any" if "or" in f else "all"
-        for e in f[list(f)[0]]:
-            c = parse_condition(e, s) if isinstance(e, str) else None
-            if not c:
-                return None
-            conds.append(c)
+        if isinstance(f, dict) and len(f) == 1 and list(f)[0] in ("and", "or") and isinstance(f[list(f)[0]], list):
+            match = "any" if "or" in f else "all"
+            conds = [as_condition(e, s) for e in f[list(f)[0]]]
+        else:
+            conds = [raw_condition(f)]
     srt = {"field": "none", "dir": "asc"}
-    if v.get("sort"):
-        if len(v["sort"]) != 1:
-            return None
-        p = v["sort"][0].get("property") or v["sort"][0].get("column")
+    sorts = v.get("sort") or []
+    if sorts:
+        p = sorts[0].get("property") if isinstance(sorts[0], dict) else None
         fld = {"formula.priorityWeight": "priority", "file.name": "title"}.get(p, p)
-        srt = {"field": fld, "dir": "desc" if str(v["sort"][0].get("direction")).upper() == "DESC" else "asc"}
-    g = (v.get("groupBy") or {}).get("property") or "none"
-    return {"name": v.get("name"), "match": match, "conditions": conds, "sort": srt,
-            "group": g, "layout": "board" if v.get("type") == "tasknotesKanban" else "list"}
+        if len(sorts) == 1 and (fld in EDITOR_SORTS or fld in ("priority", "title")) and set(sorts[0]) <= {"property", "direction"}:
+            srt = {"field": fld, "dir": "desc" if str(sorts[0].get("direction")).upper() == "DESC" else "asc"}
+        else:
+            srt = {"field": "raw", "dir": "asc", "raw": sorts}
+    gb = v.get("groupBy") or {}
+    g = gb.get("property") or "none"
+    model = {"name": v.get("name"), "match": match, "conditions": conds, "sort": srt,
+             "group": g, "layout": "board" if v.get("type") == "tasknotesKanban" else "list"}
+    if g != "none" and str(gb.get("direction") or "ASC").upper() == "DESC":
+        model["groupDir"] = "DESC"
+    used = formulas_used(d.get("formulas") or {}, [f, sorts, gb])
+    if srt["field"] == "priority" and used.get("priorityWeight") == priority_formula(s):
+        del used["priorityWeight"]      # base_dict writes it for a priority sort anyway
+    if used:
+        model["formulas"] = used
+    return model
+
+
+def formulas_used(formulas, roots):
+    """The formulas `roots` refer to, following formulas that use others,
+    in the file's own order."""
+    need, todo = set(), [json.dumps(roots)]
+    while todo:
+        for name in re.findall(r"formula\.(\w+)", todo.pop()):
+            if name in formulas and name not in need:
+                need.add(name)
+                todo.append(str(formulas[name]))
+    return {k: v for k, v in formulas.items() if k in need}
 
 
 def editable_models(vault, rel, d):
@@ -604,6 +663,56 @@ def editable_models(vault, rel, d):
     except (ValueError, KeyError):
         return {}
     return {model["name"]: model} if jsonish(regenerated) == jsonish(d) else {}
+
+
+def closest_model(vault, rel, name):
+    """The editor model nearest to a hand-made view, for "Duplicate as
+    editable view". Filters, sort and grouping are carried over exactly: what
+    the editor has rows for becomes rows, the rest is kept as written.
+    -> (model, notes) where notes say what changed."""
+    s = vault.settings
+    d = load_base(vault.read(rel))
+    v = next((x for x in d.get("views") or [] if isinstance(x, dict) and str(x.get("name")) == name), None)
+    if v is None:
+        raise ValueError("no view %r in %s" % (name, rel))
+    notes = []
+    model = model_from_view(v, d, s)
+    # The file-wide filter: the task-tag check is what every OmaForge view
+    # starts with; anything else joins the view's own conditions.
+    top = d.get("filters")
+    tag_check = 'file.hasTag(%s)' % q(s.task_tag)
+    extra = []
+    if isinstance(top, dict) and list(top) == ["and"] and isinstance(top["and"], list):
+        extra = [e for e in top["and"] if e != tag_check]
+    elif top:
+        extra = [top]
+    if extra:
+        if model["match"] == "any" and len(model["conditions"]) > 1:
+            group = {"or": [c["value"] if c["field"] == "raw" else condition_expr(c, s) for c in model["conditions"]]}
+            model["conditions"] = [raw_condition(group)]
+        model["match"] = "all"
+        model["conditions"] = [as_condition(e, s) for e in extra] + model["conditions"]
+    if not mentions_task_tag(top, s.task_tag) and not mentions_task_tag(v.get("filters"), s.task_tag):
+        notes.append("Only notes tagged #%s are included." % s.task_tag)
+    if v.get("type") not in ("tasknotesTaskList", "tasknotesKanban", "table"):
+        notes.append("Shown as a list: the original's %s layout isn't one the editor makes." % (v.get("type") or "?"))
+    kept = sum(1 for c in model["conditions"] if c["field"] == "raw")
+    if kept:
+        notes.append("%s kept exactly as written. You can remove %s here, or edit the copy in Obsidian."
+                     % ("1 condition is" if kept == 1 else "%d conditions are" % kept, "it" if kept == 1 else "them"))
+    if model["sort"]["field"] == "raw":
+        notes.append("The sort is kept as written. Pick another to replace it.")
+    model["name"] = "%s copy" % name
+    return model, notes
+
+
+def op_closest_model(vault, req, day):
+    from .vault import VaultError
+    try:
+        model, notes = closest_model(vault, req.get("file") or "", req.get("name") or "")
+    except (OSError, ValueError, yaml.YAMLError, Unsupported) as e:
+        raise VaultError("bad-view", str(e))
+    return {"model": model, "notes": notes}
 
 
 def jsonish(v):
@@ -695,4 +804,4 @@ def op_view_text(vault, req, day):
     return {"text": vault.read(rel)}
 
 
-OPS = {"previewView": op_preview, "saveView": op_save_view, "deleteView": op_delete_view, "viewText": op_view_text}
+OPS = {"closestModel": op_closest_model, "previewView": op_preview, "saveView": op_save_view, "deleteView": op_delete_view, "viewText": op_view_text}

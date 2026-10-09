@@ -63,15 +63,16 @@ like, not as a finished product.
 - **Not yet:**
   - calendar grids
   - time tracking and pomodoro
-  - editing hand-made `.base` views
+  - editing hand-made `.base` views in place (duplicating them into editable
+    copies works)
   - manual drag ordering
   - quick-add parsing of whole sentences (dates are parsed; titles aren't)
   - Obsidian Tasks `tasks` query blocks
   - translations (English only so far)
 - **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.13.8
   itself, running in Obsidian, for 33 operations. Its views are compared with
-  Obsidian's own Bases engine across 175 cases, and their sort order
-  across 26. Tasks support is compared with
+  Obsidian's own Bases engine across 192 cases, and their sort order
+  across 38. Tasks support is compared with
   the Tasks plugin (8.4.0): every task in a 600-task vault is read the same, and
   37 sample lines are written and ticked the same. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
@@ -156,9 +157,10 @@ either.
 The sidebar's **Views** lists every task view in your vault's Obsidian Bases
 (`.base`) files: TaskNotes' own Today, Overdue, This Week, Kanban, Agenda and
 so on, plus any you've made. They're evaluated live, with the same results
-Obsidian gives, in the same order (`tools/basestest.py` checks 175 cases
-and 26 sort orders against Obsidian's own query engine). Kanban views open as a board, and calendar-style views as a
-list grouped by date. Views that only make sense next to a note open in
+Obsidian gives, in the same order (`tools/basestest.py` checks 192 cases
+and 38 sort orders against Obsidian's own query engine). Kanban views open
+as a board, and calendar-style views as a list grouped by date. Views that
+only make sense next to a note open in
 Obsidian (the relationship views) are left out. Anything else OmaForge can't
 evaluate is shown dimmed with the reason, never with a wrong result.
 
@@ -168,8 +170,18 @@ grouping and list or board. It's saved as its own `.base` file in
 `TaskNotes/Views`, so it's an ordinary Obsidian Bases view too: it syncs, and
 it opens in Obsidian. Views made this way can be edited and deleted from
 OmaForge (**✎ Edit view**). Views you built by hand in Obsidian are never
-rewritten: OmaForge only touches a `.base` file it could have written itself.
-TaskNotes' older saved views (from its settings) are listed read-only.
+rewritten: OmaForge only touches a `.base` file it can regenerate exactly,
+so a rewrite can't lose anything. TaskNotes' older saved views (from its
+settings) are listed read-only.
+
+To change a hand-made view (TaskNotes' own Today, Overdue and so on),
+right-click it and pick **Duplicate as editable view**. The copy starts out
+identical to the original. Conditions the editor has controls for become
+normal rows. Anything else (nested and/or groups, formulas, a multi-key
+sort) is kept exactly as written: you can remove it, but you edit it in
+Obsidian. Only the formulas the view uses are copied. `tools/basestest.py`
+checks that Obsidian shows the same tasks, in the same order, for every
+view and its copy.
 
 ### TaskNotes or Tasks
 
@@ -354,7 +366,7 @@ follows `omarchy-theme-set` live.
 ## Not (yet) in scope
 
 Calendar grids, natural-language quick add, time tracking and pomodoro,
-editing hand-made `.base` views, manual drag ordering, Obsidian Tasks query
+editing hand-made `.base` views in place, manual drag ordering, Obsidian Tasks query
 blocks, and translations.
 
 ## Licence

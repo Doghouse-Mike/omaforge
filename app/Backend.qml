@@ -127,6 +127,7 @@ Singleton {
   function create(fields, cb) { request("create", { fields: fields }, cb) }
   function remove(task, cb) { request("delete", { path: task.path, expect: task.expect }, cb) }
   function body(task, cb) { request("body", { path: task.path }, cb) }
+  function closestModel(file, name, cb) { request("closestModel", { file: file, name: name }, cb) }
   function previewView(model, cb) { request("previewView", { model: model }, cb, true) }
   function saveView(model, file, cb) {
     request("saveView", { model: model, file: file || "" }, function (r) {

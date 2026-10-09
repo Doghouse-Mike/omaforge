@@ -21,20 +21,38 @@ Rectangle {
   property int previewCount: -1
   property string previewError: ""
   property var pickerFor: null      // {options: [{value,label}], pick: fn, anchor: item}
+  property var notes: []            // what a copy of a hand-made view changed
+  property var origin: null         // the view being copied, to compare counts
+  property int originalCount: -1
 
   function blank() {
     return { name: "", match: "all", conditions: [{ field: "status", op: "open", value: "" }],
              sort: { field: "due", dir: "asc" }, group: "none", layout: "list" }
   }
-  function openNew(seed) {
+  function openNew(seed, from) {
     file = ""
     model = seed || blank()
+    notes = from && from.notes || []
+    origin = from && from.from || null
+    originalCount = origin ? countMatches(origin) : -1
     show()
   }
   function openEdit(view) {
     file = view.file
     model = JSON.parse(JSON.stringify(view.model))
+    notes = []; origin = null; originalCount = -1
     show()
+  }
+  function countMatches(v) {
+    var byName = B.index(Backend.tasks), now = Date.now(), n = 0
+    for (var p in Backend.tasks) if (!Backend.tasks[p].error && B.matches(v, Backend.tasks[p], byName, now)) n++
+    return n
+  }
+  // A sort the editor has no button for, kept from the original view.
+  function rawSortLabel(srt) {
+    return "as original: " + (srt.raw || []).map(function (x) {
+      return (x.property || x.column || "?").replace(/^(formula|note)\./, "") + (String(x.direction).toUpperCase() === "DESC" ? " ↓" : " ↑")
+    }).join(", ")
   }
   function show() {
     visible = true
@@ -102,9 +120,7 @@ Rectangle {
         var v = r.result.view
         if (!v || v.unsupported) { ed.previewError = v ? v.unsupported : "nothing to preview"; ed.previewCount = -1; return }
         ed.previewError = ""
-        var byName = B.index(Backend.tasks), now = Date.now(), n = 0
-        for (var p in Backend.tasks) if (!Backend.tasks[p].error && B.matches(v, Backend.tasks[p], byName, now)) n++
-        ed.previewCount = n
+        ed.previewCount = ed.countMatches(v)
       })
     }
   }
@@ -147,7 +163,19 @@ Rectangle {
         width: parent.width
         spacing: Theme.px(12)
 
-        Txt { text: ed.file ? "Edit view" : "New view"; font.bold: true; font.pixelSize: Theme.fsLarge }
+        Txt { text: ed.file ? "Edit view" : ed.origin ? "Copy of " + ed.origin.name : "New view"; font.bold: true; font.pixelSize: Theme.fsLarge }
+        Repeater {
+          model: ed.notes
+          Txt {
+            required property var modelData
+            width: col.width
+            wrapMode: Text.Wrap
+            elide: Text.ElideNone
+            font.pixelSize: Theme.fsSmall
+            color: Theme.faint
+            text: "• " + modelData
+          }
+        }
 
         Row {
           spacing: 8
@@ -183,8 +211,21 @@ Rectangle {
               required property int index
               spacing: 6
               readonly property var c: modelData
+              readonly property bool raw: c.field === "raw"
+              // Kept exactly as written (from a hand-made view): removable only.
+              Txt {
+                visible: crow.raw
+                width: col.width - Theme.px(40)
+                height: Theme.px(26)
+                verticalAlignment: Text.AlignVCenter
+                color: Theme.faint
+                text: "as written: " + (crow.c.label || "")
+                MouseArea { id: rawMa; anchors.fill: parent; hoverEnabled: true }
+                Tip { text: crow.c.label || ""; show: rawMa.containsMouse }
+              }
               Btn {
                 id: pk1
+                visible: !crow.raw
                 width: Theme.px(120)
                 text: ed.labelOf(ed.fields, crow.c.field) + " ▾"
                 onClicked: ed.openPicker(pk1, ed.fields, function (v) {
@@ -194,6 +235,7 @@ Rectangle {
               }
               Btn {
                 id: pk2
+                visible: !crow.raw
                 width: Theme.px(150)
                 text: ed.labelOf(ed.opsFor(crow.c.field), crow.c.op) + " ▾"
                 onClicked: ed.openPicker(pk2, ed.opsFor(crow.c.field), function (v) {
@@ -207,7 +249,7 @@ Rectangle {
               // value
               Btn {
                 id: pk3
-                visible: ed.valueKind(crow.c) === "status" || ed.valueKind(crow.c) === "priority"
+                visible: !crow.raw && (ed.valueKind(crow.c) === "status" || ed.valueKind(crow.c) === "priority")
                 width: Theme.px(150)
                 property var opts: (ed.valueKind(crow.c) === "status" ? Backend.settings.statuses : Backend.settings.priorities)
                                      .map(function (s) { return { value: s.value, label: s.label || s.value } })
@@ -216,7 +258,7 @@ Rectangle {
               }
               Field {
                 id: valField
-                visible: ed.valueKind(crow.c) === "date" || ed.valueKind(crow.c) === "text"
+                visible: !crow.raw && (ed.valueKind(crow.c) === "date" || ed.valueKind(crow.c) === "text")
                 width: Theme.px(150)
                 tabbable: true
                 text: crow.c.value || ""
@@ -225,7 +267,7 @@ Rectangle {
                 onEscaped: ed.close()
               }
               Btn {
-                visible: ed.valueKind(crow.c) === "text" && crow.c.field !== "title"
+                visible: !crow.raw && ed.valueKind(crow.c) === "text" && crow.c.field !== "title"
                 quiet: true; text: "▾"; tip: "Pick an existing one"
                 onClicked: ed.openPicker(valField, ed.suggestions(crow.c.field), function (v) { ed.model.conditions[crow.index].value = v; ed.touch() })
               }
@@ -243,15 +285,15 @@ Rectangle {
           Txt { text: "Sort by"; color: Theme.faint; width: Theme.px(70); height: Theme.px(26) }
           Btn {
             id: pk4
-            width: Theme.px(140)
             property var opts: [{ value: "none", label: "nothing" }, { value: "due", label: "due date" }, { value: "scheduled", label: "scheduled" },
                                 { value: "priority", label: "priority" }, { value: "status", label: "status" }, { value: "title", label: "title" },
                                 { value: "dateCreated", label: "created" }, { value: "completedDate", label: "completed on" }]
-            text: ed.labelOf(opts, ed.model.sort.field) + " ▾"
-            onClicked: ed.openPicker(pk4, opts, function (v) { ed.model.sort.field = v; ed.touch() })
+            width: ed.model.sort.field === "raw" ? implicitWidth : Theme.px(140)
+            text: (ed.model.sort.field === "raw" ? ed.rawSortLabel(ed.model.sort) : ed.labelOf(opts, ed.model.sort.field)) + " ▾"
+            onClicked: ed.openPicker(pk4, opts, function (v) { ed.model.sort = { field: v, dir: ed.model.sort.dir || "asc" }; ed.touch() })
           }
           Btn {
-            visible: ed.model.sort.field !== "none"
+            visible: ed.model.sort.field !== "none" && ed.model.sort.field !== "raw"
             text: ed.model.sort.dir === "desc" ? "↓ descending" : "↑ ascending"
             onClicked: { ed.model.sort.dir = ed.model.sort.dir === "desc" ? "asc" : "desc"; ed.touch() }
           }
@@ -271,7 +313,7 @@ Rectangle {
                                 { value: "due", label: "due date" }, { value: "scheduled", label: "scheduled" },
                                 { value: "projects", label: "project" }, { value: "contexts", label: "context" }]
             text: ed.labelOf(opts, ed.model.group) + " ▾"
-            onClicked: ed.openPicker(pk5, opts, function (v) { ed.model.group = v; ed.touch() })
+            onClicked: ed.openPicker(pk5, opts, function (v) { ed.model.group = v; delete ed.model.groupDir; ed.touch() })
           }
         }
 
@@ -282,6 +324,7 @@ Rectangle {
           color: ed.previewError ? Theme.yellow : Theme.faint
           text: ed.previewError ? "⚠ " + ed.previewError
                 : ed.previewCount < 0 ? " " : "Matches " + ed.previewCount + " task" + (ed.previewCount === 1 ? "" : "s") + " right now"
+                  + (ed.originalCount < 0 ? "" : ed.originalCount === ed.previewCount ? " (the same as the original)" : " (the original: " + ed.originalCount + ")")
         }
         Txt {
           width: parent.width

@@ -59,13 +59,55 @@ class Editor(VaultCase):
         self.assertEqual(models["Home this week"], MODEL)
 
     def test_hand_edited_file_is_not_editable(self):
+        # Only files that regenerate exactly are editable, so nothing in them
+        # can be lost by a rewrite.
         text = bases.render_base(MODEL, self.v.settings)
-        d = bases.load_base(text)
-        d["views"][0]["filters"]["and"].append("file.name.contains(\"z\") || true")
-        self.assertEqual(bases.editable_models(self.v, "x.base", d), {})
         d = bases.load_base(text)
         d["views"].append({"type": "table", "name": "Other"})
         self.assertEqual(bases.editable_models(self.v, "x.base", d), {})
+        d = bases.load_base(text)
+        d["views"][0]["limit"] = 10
+        self.assertEqual(bases.editable_models(self.v, "x.base", d), {})
+        d = bases.load_base(text)
+        d["views"][0]["order"] = ["file.name"]
+        self.assertEqual(bases.editable_models(self.v, "x.base", d), {})
+
+    def test_hand_written_condition_is_kept_as_written(self):
+        text = bases.render_base(MODEL, self.v.settings)
+        d = bases.load_base(text)
+        d["views"][0]["filters"]["and"].append({"or": ['file.name.contains("z")', "priority == \"high\""]})
+        m = bases.editable_models(self.v, "x.base", d)["Home this week"]
+        self.assertEqual(m["conditions"][-1]["field"], "raw")
+        self.assertEqual(bases.jsonish(bases.base_dict(m, self.v.settings)), bases.jsonish(d))
+
+    def test_closest_model_copies_hand_made_views_exactly(self):
+        s = self.v.settings
+        hand = {"filters": {"and": ['file.hasTag("%s")' % s.task_tag, "file.inFolder(\"TaskNotes\")"]},
+                "formulas": {"w": "if(priority == \"high\", 2, 1)", "u": "formula.w * 2", "unused": "1"},
+                "views": [{"type": "table", "name": "Mine", "filters": {"or": ['status == "todo"', {"and": ["due", "!scheduled"]}]},
+                           "sort": [{"property": "formula.u", "direction": "DESC"}, {"property": "file.name", "direction": "ASC"}],
+                           "groupBy": {"property": "priority", "direction": "DESC"}},
+                          {"type": "tasknotesCalendar", "name": "Cal"}]}
+        rel = "TaskNotes/Views/hand.base"
+        self.v.write(rel, "\n".join(bases.dump(hand)) + "\n", create=True)
+        m, notes = bases.closest_model(self.v, rel, "Mine")
+        self.assertEqual(m["name"], "Mine copy")
+        self.assertEqual(m["match"], "all")
+        self.assertEqual([c["field"] for c in m["conditions"]], ["raw", "raw"])   # folder check, then the or-group
+        self.assertEqual(m["sort"]["field"], "raw")
+        self.assertEqual(m["groupDir"], "DESC")
+        self.assertEqual(sorted(m["formulas"]), ["u", "w"])
+        copy = bases.base_dict(m, s)
+        # same filter as the original, and the copy is an editable OmaForge view
+        orig = [v for v in bases.views_in(self.v, rel, self.v.read(rel)) if v["name"] == "Mine"][0]
+        mine = bases.views_in(self.v, "c.base", "\n".join(bases.dump(copy)))[0]
+        # the file-wide folder check moves into the view's own conditions
+        o_top, o_view = orig["filter"][1]
+        self.assertEqual(mine["filter"][1][1], ["and", [o_top[1][1], o_view]])
+        self.assertEqual(mine["sort"], orig["sort"])
+        self.assertTrue(mine.get("model"))
+        _, notes = bases.closest_model(self.v, rel, "Cal")
+        self.assertTrue(any("list" in n for n in notes))
 
     def test_save_edit_delete(self):
         r = bases.OPS["saveView"](self.v, {"model": MODEL}, DAY)

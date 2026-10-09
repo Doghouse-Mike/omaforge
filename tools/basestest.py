@@ -189,6 +189,7 @@ def main():
         task_map = {t["path"]: t for t in tasks.all_tasks(v, tasks.today()) if not t["error"]}
 
         cases = []  # (label, top_filters, formulas, view_filters, compiled filter, raw sort, compiled sort)
+        copies = []  # (copy label, original label)
         for d in bases.all_views(v):
             if d.get("unsupported") or d["file"].startswith(PROBE_DIR):
                 continue
@@ -197,6 +198,15 @@ def main():
             rv = next(x for x in raw["views"] if str(x.get("name")) == d["name"])
             cases.append(("view %s › %s" % (d["fileName"], d["name"]), raw.get("filters"), raw.get("formulas"),
                           rv.get("filters"), d["filter"], rv.get("sort"), d.get("sort")))
+            # "Duplicate as editable view" must give Obsidian the same view.
+            if not d.get("model"):
+                m, _notes = bases.closest_model(v, d["file"], d["name"])
+                cd = bases.base_dict(m, s)
+                cview = cd["views"][0]
+                cdesc = bases.views_in(v, "copy.base", "\n".join(bases.dump(cd)))[0]
+                copies.append(("copy %s › %s" % (d["fileName"], d["name"]), "view %s › %s" % (d["fileName"], d["name"])))
+                cases.append((copies[-1][0], cd.get("filters"), cd.get("formulas"), cview.get("filters"),
+                              cdesc["filter"], cview.get("sort"), cdesc.get("sort")))
         comp = bases.Compiler({})
         top = {"and": ['file.hasTag("todo")']}
         for e in EXPRESSIONS:
@@ -285,7 +295,16 @@ def main():
                     at, len(want), nm(want[max(0, at - 1):at + 4]), nm(have[max(0, at - 1):at + 4]))
             print("order %-56s %s%s" % (label[:56], "PASS" if ok else "FAIL", msg))
         print("\n%d/%d sorted views in Obsidian's order" % (len(sorted_cases) - ofails, len(sorted_cases)))
-        return fails + ofails
+
+        # Copies made by "Duplicate as editable view" vs their originals, both
+        # as Obsidian sees them.
+        cfails = 0
+        for copy, orig in copies:
+            ok = expected[copy] == expected[orig] and order.get(copy) == order.get(orig)
+            cfails += not ok
+            print("same as original: %-45s %s" % (copy[5:50], "PASS" if ok else "FAIL"))
+        print("\n%d/%d copies identical in Obsidian" % (len(copies) - cfails, len(copies)))
+        return fails + ofails + cfails
     finally:
         for rel in seeded:
             try:
