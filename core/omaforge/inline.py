@@ -752,8 +752,10 @@ def _tasks_by_key(vault, day):
 
 def op_update(vault, req, day):
     """Edit fields of one line. Keys as the UI sends them: title, priority,
-    due, scheduled, start, recurrence (an RRULE from the repeat box, or ""),
-    whenDone, tags, blockedBy ([{path}] / [{uid}] entries)."""
+    due, scheduled, start, created, doneDate, cancelledDate, recurrence (an
+    RRULE from the repeat box, or ""), whenDone, tags, blockedBy ([{path}] /
+    [{uid}] entries). Setting a done/cancelled date leaves the status alone,
+    as Tasks' column-view drops do."""
     from . import rrule_text
     from .vault import VaultError
     ts = vault.tasks_settings
@@ -783,11 +785,11 @@ def op_update(vault, req, day):
                 if value not in ("highest", "high", "medium", "none", "low", "lowest"):
                     raise VaultError("bad-field", "unknown priority %r" % value)
                 p["priority"] = value
-            elif name in ("due", "scheduled", "start"):
+            elif name in ("due", "scheduled", "start", "created", "doneDate", "cancelledDate"):
                 v = str(value or "")[:10]
                 if v and not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
                     raise VaultError("bad-field", "dates look like 2026-10-09")
-                p[name] = v
+                p[{"doneDate": "done", "cancelledDate": "cancelled"}.get(name, name)] = v
             elif name == "recurrence":
                 v = str(value or "").strip()
                 if not v:

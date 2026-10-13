@@ -116,6 +116,13 @@ QUERIES = [
     # limits and layout
     "limit 3", "limit to 2 tasks", "sort by due\nlimit 4", "group by heading\nlimit groups 2",
     "limit 0", "hide due date\nshort mode\nexplain", "show tree", "hide frobs", "view list",
+    # the columns view
+    "view columns by priority", "view columns by priority reverse", "view columns by due",
+    "view columns by status.type\ngroup by heading", "view columns by tags\nlimit groups 2",
+    "view columns by urgency", "view columns by happens\nsort by description",
+    "group by heading\nview columns by priority", "view columns by priority\nview list",
+    "view columns by", "view columns by frobs", "view columns", "view sideways", "view list please",
+    "view columns by description",
     # continuation, comments, presets, placeholders
     "not done \\\n  AND (due today)", "# a comment\nnot done", "(not done) AND \\\n  (due today)",
     "path includes {{query.file.folder}}", "preset this_folder", "preset nonesuch",

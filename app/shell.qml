@@ -70,6 +70,8 @@ ShellRoot {
       return "no such item"
     }
     function create(title: string): void { root.createTask(title) }
+    function boardColumns(): string { return JSON.stringify(board.columns.map(function (c) { return [c.status.label, c.tasks.length, c.drop || null] })) }
+    function boardDrop(path: string, col: int): string { return board.dropTask(Backend.tasks[path], board.columns[col]) ? "ok" : "refused" }
     function duplicateView(id: string): void { root.duplicateView(Backend.views.filter(function (v) { return v.id === id })[0]) }
     function editorState(): string { return JSON.stringify({ visible: viewEditor.visible, model: viewEditor.model, notes: viewEditor.notes, count: viewEditor.previewCount, original: viewEditor.originalCount, error: viewEditor.previewError }) }
     function confirmDelete(): void { confirmBox.del() }
@@ -164,7 +166,7 @@ ShellRoot {
       function pickView(id) {
         viewId = id
         var bv = currentBase
-        layout = bv && bv.layout === "board" ? "board" : userLayout
+        layout = (bv && bv.layout === "board") || result.layout === "board" && result.columns ? "board" : userLayout
         if (!flatTasks.some(function (t) { return t.path === selectedPath })) selectedPath = flatTasks.length ? flatTasks[0].path : "" }
       function toggle(t) {
         if (!t) return
@@ -613,6 +615,9 @@ ShellRoot {
           visible: root.layout === "board"
           anchors { top: newBar.bottom; left: parent.left; right: parent.right; bottom: parent.bottom }
           tasks: root.flatTasks
+          givenColumns: root.result.columns || null
+          columnsBy: root.result.columnsBy || ""
+          onSetField: (t, f, v) => { var o = {}; o[f] = v; Backend.update(t, o) }
           selectedPath: root.selectedPath
           onSelect: p => { root.selectedPath = p; root.forceActiveFocus() }
           onToggle: t => root.toggle(t)

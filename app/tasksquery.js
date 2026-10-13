@@ -6,7 +6,10 @@
 // tools/tasksquerytest.py checks the results against the plugin itself.
 //
 //   evaluate(source, tasks, { file, settings, today })
-//     -> { error } | { unsupported } | { total, groups: [{ names, tasks }] }
+//     -> { error } | { unsupported } | { total, groups: [{ names, tasks }], columns }
+//
+// `columns` is the field of `view columns by <field>` (its grouper comes first,
+// so names[0] is the column), or null for the list view.
 //
 // `error` is what Tasks would show as an error; `unsupported` means Tasks
 // would accept the line but OmaForge can't reproduce it (say, a date phrase
@@ -595,7 +598,7 @@ var HIDE_OPTIONS = ["backlink", "edit button", "nested backlink", "postpone butt
 // ---- The query ---------------------------------------------------------------------
 
 function parse(source, ctx) {
-  var q = { filters: [], sorts: [], groups: [], limit: null, groupLimit: null, ignoreGlobal: false }
+  var q = { filters: [], sorts: [], groups: [], limit: null, groupLimit: null, ignoreGlobal: false, view: null }
   function one(st, depth) {
     var line = st.text, m
     if (line.indexOf("{{") >= 0 && line.indexOf("}}") >= 0 && !/^#/.test(line)) {
@@ -621,8 +624,18 @@ function parse(source, ctx) {
     var g = groupLine(line)
     if (g) { q.groups.push(g); return }
     if ((m = /^view +(.*)/i.exec(line))) {
-      if (/^list$/i.test(m[1].trim())) return
-      throw new Unsupported("the columns view")
+      // The last view line wins. "columns by X" is "group by X", put first.
+      var vm = m[1].trim(), sp = vm.indexOf(" ")
+      var mode = (sp < 0 ? vm : vm.slice(0, sp)).toLowerCase(), rest = sp < 0 ? "" : vm.slice(sp + 1).trim()
+      if (mode === "list" && !rest) { q.view = null; return }
+      if (mode === "columns") {
+        if (!rest) throw new QueryError("columns view requires a grouping expression")
+        var cg = groupLine("group " + rest)
+        if (!cg) throw new QueryError("do not understand columns grouping \"" + rest + "\"")
+        q.view = cg
+        return
+      }
+      throw new QueryError("do not understand view mode \"" + vm + "\"")
     }
     if ((m = /^(hide|show) +(.*)/i.exec(line))) {
       var opt = m[2].toLowerCase()
@@ -680,13 +693,14 @@ function evaluate(source, tasks, opts) {
   list = list.map(function (x) { return x.t })
   var total = list.length
   if (q.limit !== null) list = list.slice(0, q.limit)
+  var groupers = q.view ? [q.view].concat(q.groups) : q.groups
   var groups
-  if (!q.groups.length) groups = [{ names: [], tasks: list }]
+  if (!groupers.length) groups = [{ names: [], tasks: list }]
   else {
     var byKey = {}, order = []
     list.forEach(function (t) {
       var paths = [[]]
-      q.groups.forEach(function (g) {
+      groupers.forEach(function (g) {
         var names = groupNames(g.field, t, ctx), next = []
         paths.forEach(function (p) { names.forEach(function (n) { next.push(p.concat([n])) }) })
         paths = next
@@ -699,16 +713,16 @@ function evaluate(source, tasks, opts) {
     })
     groups = order.map(function (k) { return byKey[k] })
     groups.sort(function (a, b) {
-      for (var l = 0; l < q.groups.length; l++) {
+      for (var l = 0; l < groupers.length; l++) {
         var c = lc(a.names[l], b.names[l])
-        if (c) return q.groups[l].reverse ? -c : c
+        if (c) return groupers[l].reverse ? -c : c
       }
       return 0
     })
     if (q.groupLimit !== null)
       groups.forEach(function (g) { g.tasks = g.tasks.slice(0, q.groupLimit) })   // the total stays as it was
   }
-  return { total: total, groups: groups }
+  return { total: total, groups: groups, columns: q.view ? q.view.field : null }
 }
 
 // A group name as shown: Tasks' hidden %%…%% ordering prefixes removed.

@@ -181,7 +181,21 @@ function compute(viewId, tasks, settings, today, opts) {
     }).filter(function (g) { return g.tasks.length })
     var shown = 0
     qgroups.forEach(function (g) { shown += g.tasks.length })
-    return { groups: qgroups, count: opts.search ? shown : res.total, layout: "list" }
+    var out = { groups: qgroups, count: opts.search ? shown : res.total, layout: "list" }
+    if (res.columns) {
+      // view columns by X: one board column per first-level group, with the
+      // remaining levels as headings inside it.
+      var cols = [], byName = {}
+      res.groups.forEach(function (g) {
+        var name = g.names[0], ts = g.tasks.filter(function (t) { return matchesSearch(t, opts.search) })
+        if (!byName[name]) { byName[name] = { name: name, label: TQ.displayName(name) || "(none)", sections: [], sample: g.tasks[0] }; cols.push(byName[name]) }
+        if (ts.length) byName[name].sections.push({ label: g.names.slice(1).map(TQ.displayName).filter(function (n) { return n }).join(" › "), tasks: ts })
+      })
+      out.layout = "board"
+      out.columns = cols
+      out.columnsBy = res.columns
+    }
+    return out
   }
   case "saved":
     var sv = null
