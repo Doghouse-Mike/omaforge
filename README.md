@@ -210,14 +210,15 @@ OmaForge works with one task format at a time, chosen under the gear
   the same tasks as the block does in Obsidian, in the same order and groups.
   The filters, boolean combinations, sorting, grouping, limits, presets and
   the global query all follow Tasks 8.5.0 (`docs/tasks-query-spec.md`).
-  Natural-language dates are limited to a common subset: absolute dates,
-  ranges, `today`/`tomorrow`, weekdays, `in 3 days`, `next week` and the like.
+  Natural-language dates ("next friday", "in two weeks", "14 October", two
+  dates as a range) are read by the same chrono-node version Tasks bundles,
+  vendored as `app/chrono.js` (MIT).
   `view columns by …` shows the query as a board, one column per group, with
   any further `group by` levels as headings inside the columns. As in Tasks,
   dragging a card between columns edits it when the columns are by priority
   or by a date (due, scheduled, start, created, done, cancelled). Dropping on
   "No due date" removes the date, and other columns are display-only.
-  A query using anything else, or one that Tasks itself would reject, is
+  A query that Tasks itself would reject, or one reading note properties, is
   shown dimmed with the reason, never with a guessed answer. JavaScript in
   queries (`filter by function` and so on) is off by default in Tasks too,
   so those lines are errors.

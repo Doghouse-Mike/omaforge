@@ -352,7 +352,12 @@ two are swapped (`DateRange.ts`).
 | `in N days|weeks|months|years`, `N days … ago` (N a digit or `a`/`an`/`one`…`twelve`) | that single day (today ± N units) |
 | `14 October`, `May` | the current year (1 May for a bare month) |
 
-**Complex, treat as unsupported:** any other chrono input. That includes
+**OmaForge doesn't re-implement chrono:** it bundles chrono-node 2.3.9 itself
+(`app/chrono.js`) and calls `chrono.parse`/`chrono.parseDate` exactly as above,
+so every chrono input behaves as in Tasks. The table above and the next
+paragraph are for reference only.
+
+**Complex (handled by chrono itself):** any other chrono input. That includes
 mixed-case relative ranges, times of day (stripped by `startOf('day')`), two
 words-only dates, `X to Y`, and locale-dependent formats such as `05/06/2026`
 (chrono reads it as US MM/DD).
