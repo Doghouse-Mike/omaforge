@@ -50,4 +50,7 @@ if qs ipc -p "$APP" call omaforge show >/dev/null 2>&1; then
 fi
 
 export OMAFORGE_VAULT="$vault"
+# The vendored chrono-node bundle (app/chrono.js) is minified; Qt lints it
+# with harmless "used before its declaration" warnings.
+export QT_LOGGING_RULES="${QT_LOGGING_RULES:+$QT_LOGGING_RULES;}qt.qml.usedbeforedeclared=false"
 exec qs -p "$APP" -n -d

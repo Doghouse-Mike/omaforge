@@ -5,9 +5,12 @@
 // Used by tools/tasksquerytest.py.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-const src = readFileSync(new URL("../app/tasksquery.js", import.meta.url), "utf8").replace(/^\.pragma library\s*/, "");
+const load = f => readFileSync(new URL("../app/" + f, import.meta.url), "utf8")
+  .replace(/^\.pragma library\s*/, "").replace(/^\.import .*$/gm, "");
+const C = {};
+vm.runInNewContext(load("chrono.js") + "\nexports.chrono = chrono;", { exports: C, Date });
 const Q = {};
-vm.runInNewContext(src + "\nexports.evaluate = evaluate;", { exports: Q, Date });
+vm.runInNewContext(load("tasksquery.js") + "\nexports.evaluate = evaluate;", { exports: Q, Date, C });
 const input = JSON.parse(readFileSync(0, "utf8"));
 const out = {};
 for (const q of input.queries) {

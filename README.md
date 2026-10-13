@@ -74,7 +74,7 @@ like, not as a finished product.
   Obsidian's own Bases engine across 198 cases, their sort order across 32,
   and their grouping across 12. Tasks support is compared with the Tasks
   plugin (8.5.0): every task in a 600-task vault is read the same,
-  37 sample lines are written and ticked the same, and 183 ` ```tasks `
+  37 sample lines are written and ticked the same, and 231 ` ```tasks `
   queries give the same tasks in the same order and groups. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
   [Matching TaskNotes exactly](#matching-tasknotes-exactly).

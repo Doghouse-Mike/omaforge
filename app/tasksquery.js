@@ -1,4 +1,5 @@
 .pragma library
+.import "chrono.js" as C
 
 // Obsidian Tasks ```tasks query blocks, evaluated over OmaForge's Tasks-mode
 // records (core/omaforge/inline.py build()). Semantics follow Tasks 8.5.0 as
@@ -48,20 +49,6 @@ function dayOf(s) {
 function valid(d) { return d !== null && !isNaN(d) }
 
 // ---- §2.4 date ranges -----------------------------------------------------
-
-var NUMWORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
-                 ten: 10, eleven: 11, twelve: 12 }
-var UNIT = "(days?|weeks?|months?|years?)"
-var WDAY = { sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, tues: 2, wednesday: 3, wed: 3,
-             thursday: 4, thu: 4, thur: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6 }
-
-function shift(today, n, unit) {
-  unit = unit.replace(/s$/, "")
-  if (unit === "day") return today + n
-  if (unit === "week") return today + 7 * n
-  if (unit === "month") return addMonths(today, n)
-  return addMonths(today, 12 * n)
-}
 
 function relativeRange(text, today) {
   var m = /(last|this|next) (week|month|quarter|year)/.exec(text)     // case-sensitive, unanchored
@@ -113,50 +100,30 @@ function numberedRange(text) {
   return null
 }
 
-// The chrono subset (§2.4 table): one phrase -> a day, null (not a date at
-// all), or throws Unsupported for anything chrono might read differently.
-function phraseDay(text, today) {
-  var t = text.trim().toLowerCase(), m
-  if (t === "today") return today
-  if (t === "tomorrow") return today + 1
-  if (t === "yesterday") return today - 1
-  if (WDAY[t] !== undefined) {
-    var diff = WDAY[t] - dow(today), best = diff
-    ;[diff - 7, diff + 7].forEach(function (x) { if (Math.abs(x) < Math.abs(best)) best = x })
-    return today + best
-  }
-  if ((m = /^(this|next|last) ([a-z]+)$/.exec(t)) && WDAY[m[2]] !== undefined)
-    return today - dow(today) + WDAY[m[2]] + (m[1] === "next" ? 7 : m[1] === "last" ? -7 : 0)
-  if ((m = new RegExp("^in (\\d+|[a-z]+) " + UNIT + "$").exec(t))) {
-    var n = /^\d+$/.test(m[1]) ? +m[1] : NUMWORDS[m[1]]
-    if (n !== undefined) return shift(today, n, m[2])
-  }
-  if ((m = new RegExp("^(\\d+|[a-z]+) " + UNIT + " ago$").exec(t))) {
-    var k = /^\d+$/.test(m[1]) ? +m[1] : NUMWORDS[m[1]]
-    if (k !== undefined) return shift(today, -k, m[2])
-  }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
-    var d = dayOf(t)
-    if (valid(d)) return d
-    throw new Unsupported("date \"" + text.trim() + "\"")
-  }
-  throw new Unsupported("date \"" + text.trim() + "\"")
+// §2.4 step 3: chrono itself (the version Tasks bundles), with the same
+// reference time and options. Days come back as local calendar days.
+function refDate(today) {
+  var p = parts(today), now = new Date()
+  return new Date(p[0], p[1] - 1, p[2], now.getHours(), now.getMinutes(), now.getSeconds())
+}
+function chronoDay(d) { return mk(d.getFullYear(), d.getMonth() + 1, d.getDate()) }
+
+// chrono.parse: one result is a day, two make a range; null if no date.
+function absoluteRange(text, today) {
+  var res = C.chrono.parse(text, refDate(today), { forwardDate: false })
+  if (!res.length) return null
+  var s = chronoDay(res[0].start.date())
+  var e = res[1] && res[1].start ? chronoDay(res[1].start.date()) : s
+  return s <= e ? { start: s, end: e } : { start: e, end: s }
+}
+// chrono.parseDate: the first date in the text, or null.
+function parseDay(text, today) {
+  var d = C.chrono.parseDate(text, refDate(today), { forwardDate: false })
+  return d ? chronoDay(d) : null
 }
 
 function dateRange(text, today) {
-  var r = relativeRange(text, today) || numberedRange(text)
-  if (r) return r
-  var t = text.trim()
-  // Absolute dates: one is a day; two make a range (an impossible one is skipped).
-  var abs = t.split(/\s+/)
-  if (abs.length === 2 && abs.every(function (x) { return /^\d{4}-\d{2}-\d{2}$/.test(x) })) {
-    var ds = abs.map(dayOf).filter(valid)
-    if (ds.length === 2) return ds[0] <= ds[1] ? { start: ds[0], end: ds[1] } : { start: ds[1], end: ds[0] }
-    if (ds.length === 1) return { start: ds[0], end: ds[0] }
-    throw new Unsupported("date \"" + t + "\"")
-  }
-  var d = phraseDay(t, today)
-  return { start: d, end: d }
+  return relativeRange(text, today) || numberedRange(text) || absoluteRange(text, today)
 }
 
 // ---- Task values ------------------------------------------------------------
@@ -318,12 +285,12 @@ function dateFilter(line, ctx) {
     if (line.indexOf("<%") >= 0 || line.indexOf("YYYY-MM-DD") >= 0)
       throw new QueryError("Instruction contains unexpanded template text")
     var m = new RegExp("^" + kw + " (((?:on|in) or before|before|(?:on|in) or after|after|on|in)? ?(.*))", "i").exec(line)
-    var key = m[2] ? m[2].toLowerCase() : "", range
-    try { range = dateRange(m[3], ctx.today) }
-    catch (e) {
-      if (!(e instanceof Unsupported)) throw e
-      try { var d1 = phraseDay(m[1], ctx.today); range = { start: d1, end: d1 } }
-      catch (e2) { throw e }
+    var key = m[2] ? m[2].toLowerCase() : "", range = dateRange(m[3], ctx.today)
+    if (!range) {
+      // e.g. "due in two weeks": the keyword was part of the date
+      var d1 = parseDay(m[1], ctx.today)
+      if (d1 === null) throw new QueryError("do not understand " + field + " date")
+      range = { start: d1, end: d1 }
     }
     var pred = function (d) {
       if (key === "before") return d < range.start

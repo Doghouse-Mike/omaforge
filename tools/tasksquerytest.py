@@ -116,6 +116,19 @@ QUERIES = [
     # limits and layout
     "limit 3", "limit to 2 tasks", "sort by due\nlimit 4", "group by heading\nlimit groups 2",
     "limit 0", "hide due date\nshort mode\nexplain", "show tree", "hide frobs", "view list",
+    # natural-language dates (chrono-node, as Tasks bundles it)
+    "due next friday", "due this friday", "due last friday", "due friday", "due fri", "due sat", "due sunday",
+    "due in two weeks", "due in a week", "due in 10 days", "due 3 days ago", "due a week ago", "due two weeks ago",
+    "due before in three days", "due after 2 days ago", "scheduled in one week", "due on or before next tuesday",
+    "due %s" % (T + timedelta(days=3)).strftime("%d %B"), "due %s" % (T + timedelta(days=3)).strftime("%B %d"),
+    "due %s" % (T + timedelta(days=5)).strftime("%d %b %Y"), "due %s" % (T + timedelta(days=5)).strftime("%B %-d, %Y"),
+    "due %s" % T.strftime("%B"), "due before %s" % (T + timedelta(days=40)).strftime("%B"),
+    "due the 20th", "due on the 1st", "due Next Week", "due Tomorrow", "due TODAY", "due next weekend",
+    "due %s to %s" % (d(-3), d(3)), "due %s - %s" % (d(-3), d(3)), "due between %s and %s" % (d(-3), d(3)),
+    "due %s %s" % ((T - timedelta(days=3)).strftime("%d %B"), (T + timedelta(days=3)).strftime("%d %B")),
+    "due tonight", "due this morning", "due now", "due noon", "due midnight", "due in 2 months", "due last month end",
+    "happens next thursday", "starts after next monday", "due someday", "due whenever", "due the day after tomorrow",
+    "(due tomorrow) OR (due next friday)",
     # the columns view
     "view columns by priority", "view columns by priority reverse", "view columns by due",
     "view columns by status.type\ngroup by heading", "view columns by tags\nlimit groups 2",

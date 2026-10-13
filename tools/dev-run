@@ -2,6 +2,9 @@
 # Restart OmaForge from this checkout against the test vault; log to $1 (or /tmp).
 APP="$(dirname "$(readlink -f "$0")")/../app"
 LOG="${1:-${TMPDIR:-/tmp}/omaforge-dev.log}"
+# The vendored chrono-node bundle (app/chrono.js) is minified; Qt lints it
+# with harmless "used before its declaration" warnings.
+export QT_LOGGING_RULES="${QT_LOGGING_RULES:+$QT_LOGGING_RULES;}qt.qml.usedbeforedeclared=false"
 P=$(pgrep -f '^qs -p (app|.*omaforge/app)( |$)') && kill $P && sleep 0.5
 VAULT="${OMAFORGE_VAULT:-${OMAFORGE_TEST_VAULT:-}}"
 [ -n "$VAULT" ] || { echo "dev-run: set OMAFORGE_TEST_VAULT (a disposable vault copy)" >&2; exit 2; }
