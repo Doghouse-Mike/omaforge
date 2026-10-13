@@ -163,7 +163,7 @@ def resolve_mode(vault_path, conf=None):
 
 
 class Entry:
-    __slots__ = ("rel", "mtime", "size", "data", "error", "has_fm", "inline", "meta", "queries")
+    __slots__ = ("rel", "mtime", "size", "data", "error", "has_fm", "inline", "meta", "queries", "props")
 
     def __init__(self, rel, mtime, size):
         self.rel, self.mtime, self.size = rel, mtime, size
@@ -171,7 +171,8 @@ class Entry:
         self.data, self.error, self.has_fm = {}, None, False
         self.inline = []   # Tasks mode: (line_no, line) checkbox lines
         self.meta = {}     # Tasks mode: line_no -> {heading, parent}
-        self.queries = []  # Tasks mode: (line_no, source) of ```tasks blocks
+        self.queries = []  # Tasks mode: (line_no, source, heading) of ```tasks blocks
+        self.props = {}    # Tasks mode: the note's properties, if it has queries
 
 
 def file_hash(text):
@@ -260,6 +261,7 @@ class Vault:
         if self.mode == "tasks":
             from . import inline
             e.inline, e.meta, e.queries = inline.scan(text) if ("[" in text or "tasks" in text) else ([], {}, [])
+            e.props = inline.note_props(text) if e.queries else {}
             return
         if not (text.startswith("---") or text.startswith("﻿---")):
             return

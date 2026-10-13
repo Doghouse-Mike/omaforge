@@ -33,7 +33,8 @@ Contents: 1 pipeline · 2 filters · 3 layout · 4 sorting · 5 grouping ·
 combined = new Query(globalQuery.source + '\n' + fileDefaults.source + '\n' + block.source, file)
 ```
 
-- **Query File Defaults** (`src/Query/QueryFileDefaults.ts`) are lines
+- **Query File Defaults** (`src/Query/QueryFileDefaults.ts`; in OmaForge,
+  `fileDefaults()` in `app/tasksquery.js`, fed by `inline.note_props`) are lines
   generated from `TQ_*` frontmatter properties of the file that contains the
   query (`TQ_short_mode`, `TQ_show_tree`, `TQ_extra_instructions`, …). They are
   prepended to the block.

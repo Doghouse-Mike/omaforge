@@ -171,7 +171,7 @@ function compute(viewId, tasks, settings, today, opts) {
     if (!qb) return { groups: [], count: 0, unsupported: "query not found (note changed?)" }
     var all = []
     for (var tp in tasks) if (!tasks[tp].error && tasks[tp].source === "tasks") all.push(tasks[tp])
-    var res = TQ.evaluate(qb.source, all, { file: qb.file, settings: opts.tasksPlugin || {}, today: today })
+    var res = TQ.evaluate(qb.source, all, { file: qb.file, props: qb.props || {}, settings: opts.tasksPlugin || {}, today: today })
     if (res.error) return { groups: [], count: 0, unsupported: "Tasks query error: " + res.error }
     if (res.unsupported) return { groups: [], count: 0, unsupported: "not supported yet: " + res.unsupported }
     var qgroups = res.groups.map(function (g, gi) {

@@ -74,7 +74,7 @@ like, not as a finished product.
   Obsidian's own Bases engine across 198 cases, their sort order across 32,
   and their grouping across 12. Tasks support is compared with the Tasks
   plugin (8.5.0): every task in a 600-task vault is read the same,
-  37 sample lines are written and ticked the same, and 231 ` ```tasks `
+  37 sample lines are written and ticked the same, and 245 ` ```tasks `
   queries give the same tasks in the same order and groups. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
   [Matching TaskNotes exactly](#matching-tasknotes-exactly).
@@ -218,7 +218,10 @@ OmaForge works with one task format at a time, chosen under the gear
   dragging a card between columns edits it when the columns are by priority
   or by a date (due, scheduled, start, created, done, cancelled). Dropping on
   "No due date" removes the date, and other columns are display-only.
-  A query that Tasks itself would reject, or one reading note properties, is
+  A note's properties work as in Tasks: its `TQ_*` "query file defaults"
+  (`TQ_extra_instructions`, `TQ_short_mode` and so on) apply to every query in
+  the note, and `{{query.file.property('x')}}` reads them.
+  A query that Tasks itself would reject is
   shown dimmed with the reason, never with a guessed answer. JavaScript in
   queries (`filter by function` and so on) is off by default in Tasks too,
   so those lines are errors.

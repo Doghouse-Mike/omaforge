@@ -6,7 +6,10 @@
 // written up in docs/tasks-query-spec.md (section numbers below refer to it);
 // tools/tasksquerytest.py checks the results against the plugin itself.
 //
-//   evaluate(source, tasks, { file, settings, today })
+//   evaluate(source, tasks, { file, props, settings, today })
+//
+// `props` are the properties of the note holding the query (inline.note_props):
+// its TQ_* "query file defaults" and {{query.file.property('x')}} read them.
 //     -> { error } | { unsupported } | { total, groups: [{ names, tasks }], columns }
 //
 // `columns` is the field of `view columns by <field>` (its grouper comes first,
@@ -209,6 +212,53 @@ function fileValues(file) {
   }
 }
 
+// The query note's properties, as Tasks' TasksFile reads them (key case-insensitive).
+function propKey(props, key) {
+  var low = key.toLowerCase()
+  for (var k in props) if (k.toLowerCase() === low) return k
+  return undefined
+}
+function hasProp(props, key) {
+  var k = propKey(props, key)
+  return k !== undefined && props[k] !== null && props[k] !== undefined
+}
+function prop(props, key) {
+  var k = propKey(props, key)
+  if (k === undefined || props[k] === undefined) return null
+  var v = props[k]
+  return Array.isArray(v) ? v.filter(function (x) { return x !== null }) : v
+}
+
+// QueryFileDefaults.ts: TQ_* properties become instructions, in this order.
+var FILE_DEFAULTS = [
+  ["TQ_show_toolbar", "show", "toolbar"], ["TQ_explain", "instr", "explain", ""],
+  ["TQ_short_mode", "instr", "short mode", "full mode"], ["TQ_show_tree", "show", "tree"],
+  ["TQ_show_tags", "show", "tags"], ["TQ_show_id", "show", "id"], ["TQ_show_depends_on", "show", "depends on"],
+  ["TQ_show_priority", "show", "priority"], ["TQ_show_recurrence_rule", "show", "recurrence rule"],
+  ["TQ_show_on_completion", "show", "on completion"], ["TQ_show_created_date", "show", "created date"],
+  ["TQ_show_start_date", "show", "start date"], ["TQ_show_scheduled_date", "show", "scheduled date"],
+  ["TQ_show_due_date", "show", "due date"], ["TQ_show_cancelled_date", "show", "cancelled date"],
+  ["TQ_show_done_date", "show", "done date"], ["TQ_show_urgency", "show", "urgency"],
+  ["TQ_show_backlink", "show", "backlink"], ["TQ_show_edit_button", "show", "edit button"],
+  ["TQ_show_postpone_button", "show", "postpone button"], ["TQ_show_task_count", "show", "task count"],
+  ["TQ_extra_instructions", "add"],
+]
+function fileDefaults(props) {
+  return FILE_DEFAULTS.map(function (d) {
+    if (!hasProp(props, d[0])) return ""
+    var v = prop(props, d[0])
+    if (d[1] === "instr") return v ? d[2] : d[3]
+    if (d[1] === "show") return (v ? "show " : "hide ") + d[2]
+    return typeof v === "string" ? v : ""
+  }).filter(function (x) { return x !== "" }).join("\n")
+}
+
+function placeholderValue(v, k) {
+  if (v === null || v === undefined)
+    throw new QueryError("There was an error expanding one or more placeholders.\n\nThe error message was:\n    Invalid placeholder result 'null'.\n    Check for missing file property in this expression:\n        {{" + k + "}}")
+  return typeof v === "object" ? JSON.stringify(v) : String(v)
+}
+
 function expand(text, ctx) {
   return text.replace(/\{\{(.*?)\}\}/g, function (_, inner) {
     var k = inner.trim()
@@ -218,7 +268,10 @@ function expand(text, ctx) {
       if (ctx.presets[p[1]] === undefined) throw new QueryError("There was an error expanding one or more placeholders.\n\nThe error message was:\n    Unknown property: " + k)
       return ctx.presets[p[1]]
     }
-    if (/^query\.file\.(property|hasProperty)\(/.test(k)) throw new Unsupported("{{" + k + "}} (note properties)")
+    var pm = /^query\.file\.property\((['"])([^'"]*)\1\)$/.exec(k)
+    if (pm) return placeholderValue(prop(ctx.props, pm[2]), k)
+    var hm = /^query\.file\.hasProperty\((['"])([^'"]*)\1\)$/.exec(k)
+    if (hm) return String(hasProp(ctx.props, hm[2]))
     if (/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(k))
       throw new QueryError("There was an error expanding one or more placeholders.\n\nThe error message was:\n    Unknown property: " + k)
     throw new QueryError("JavaScript is now disabled in Tasks queries by default.")
@@ -626,7 +679,7 @@ function parse(source, ctx) {
 
 function evaluate(source, tasks, opts) {
   var settings = opts.settings || {}
-  var ctx = { today: dayOf(opts.today), gf: settings.globalFilter || "", files: fileValues(opts.file || ""),
+  var ctx = { today: dayOf(opts.today), gf: settings.globalFilter || "", files: fileValues(opts.file || ""), props: opts.props || {},
               presets: settings.presets || DEFAULT_PRESETS, openIds: {}, openDeps: {} }
   tasks.forEach(function (t) {
     if (isDone(t)) return
@@ -635,9 +688,12 @@ function evaluate(source, tasks, opts) {
   })
   var q
   try {
-    q = parse(source, ctx)
+    // QueryRendererHelper.ts: global query + file defaults + the block, as one query.
+    var defaults = fileDefaults(ctx.props)
+    var own = defaults ? defaults + "\n" + source : source
+    q = parse(own, ctx)
     var gq = settings.globalQuery || ""
-    if (gq.trim() && !q.ignoreGlobal) q = parse(gq + "\n" + source, ctx)
+    if (gq.trim() && !q.ignoreGlobal) q = parse(gq + "\n" + own, ctx)
   } catch (e) {
     if (e instanceof QueryError) return { error: e.error }
     if (e instanceof Unsupported) return { unsupported: e.unsupported }

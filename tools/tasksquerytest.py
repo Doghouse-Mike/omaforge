@@ -63,6 +63,31 @@ SEED = """# Query seeds
 """.format(d0=d(0), d1=d(1), d2=d(2), d3=d(3), d5=d(5), d6=d(6), d9=d(9), d14=d(14), d40=d(40),
            dm1=d(-1), dm2=d(-2), dm3=d(-3), dm4=d(-4), dm10=d(-10), dm20=d(-20), dm30=d(-30))
 
+# A query note with properties: its TQ_* "query file defaults" apply to every
+# query in it, and {{query.file.property('x')}} reads them. Queries written
+# "@..." run in this note.
+PROPS_NOTE = """---
+TQ_extra_instructions: |-
+  not done
+  sort by description
+TQ_short_mode: true
+TQ_show_tree: false
+TQ_explain: false
+level_1_group: priority
+Wanted: "#work"
+count_limit: 3
+listy:
+  - a
+  - b
+nothing:
+when: %s
+tags: [alpha, beta]
+---
+```tasks
+limit 1
+```
+""" % T.isoformat()
+
 # Restrict every query to the seeds (plus whatever the query adds), so the
 # answers are about known tasks; the global-scope queries come at the end.
 SCOPE = "path includes %s/seed" % PROBE_DIR
@@ -129,6 +154,15 @@ QUERIES = [
     "due tonight", "due this morning", "due now", "due noon", "due midnight", "due in 2 months", "due last month end",
     "happens next thursday", "starts after next monday", "due someday", "due whenever", "due the day after tomorrow",
     "(due tomorrow) OR (due next friday)",
+    # the query note's properties (PROPS_NOTE)
+    "@due before next month", "@group by {{query.file.property('level_1_group')}}",
+    "@group by {{query.file.property('LEVEL_1_GROUP')}}", "@tags include {{query.file.property('wanted')}}",
+    "@limit {{query.file.property('count_limit')}}", "@description includes {{query.file.property('nothing')}}",
+    "@description includes {{query.file.property('missing')}}", "@description includes {{query.file.property('listy')}}",
+    "@due on or before {{query.file.property('when')}}", "@{{query.file.hasProperty('listy')}}",
+    "@(description includes {{query.file.hasProperty('nothing')}}) OR (due today)",
+    "@path includes {{query.file.property(\"level_1_group\")}}", "@ignore global query\ndone",
+    "@description includes {{query.file.property('tags')}}",
     # the columns view
     "view columns by priority", "view columns by priority reverse", "view columns by due",
     "view columns by status.type\ngroup by heading", "view columns by tags\nlimit groups 2",
@@ -147,9 +181,10 @@ QUERIES = [
 ]
 
 RUN_JS = r"""(()=>{window.__omtq=null;setTimeout(()=>{try{
-const R=window.__omtqLeaf.view.previewMode._children.find(k=>k.queryResultsRenderer).queryResultsRenderer;
+const rend=l=>l.view.previewMode._children.find(k=>k.queryResultsRenderer).queryResultsRenderer;
+const Rs=[rend(window.__omtqLeaf),rend(window.__omtqLeaf2)];
 const all=app.plugins.plugins["obsidian-tasks-plugin"].getTasks().slice().sort((a,b)=>{const p=a.taskLocation.path,q=b.taskLocation.path;return p<q?-1:p>q?1:a.taskLocation.lineNumber-b.taskLocation.lineNumber});
-const run=src=>{const keep=R.source;R.source=src;try{const q=R.makeQueryFromSourceAndTasksFile();
+const run=([src,which])=>{const R=Rs[which];const keep=R.source;R.source=src;try{const q=R.makeQueryFromSourceAndTasksFile();
  if(q.error)return {error:q.error};const res=q.applyQueryToTasks(all.slice());  /* it sorts in place */
  return {total:res.totalTasksCountBeforeLimit,groups:res.taskGroups.groups.map(g=>({names:g.groups,
  tasks:g.tasks.map(t=>t.taskLocation.path+"::L"+t.taskLocation.lineNumber)}))}}
@@ -193,15 +228,27 @@ def main():
             f.write(SEED)
         with open(os.path.join(pdir, "q.md"), "w") as f:
             f.write("```tasks\nnot done\nlimit 1\n```\n")
+        with open(os.path.join(pdir, "props.md"), "w") as f:
+            f.write(PROPS_NOTE)
         wait_for('app.plugins.plugins["obsidian-tasks-plugin"].getTasks().some(t=>t.taskLocation.path==%s)?"yes":"no"'
                  % json.dumps(PROBE_DIR + "/seed.md"), "Tasks to index the seeds")
         obs('(async()=>{const leaf=app.workspace.getLeaf("tab");window.__omtqLeaf=leaf;'
             'await leaf.openFile(app.vault.getFileByPath(%s),{state:{mode:"preview"}})})(),"k"' % json.dumps(PROBE_DIR + "/q.md"))
         wait_for('window.__omtqLeaf&&window.__omtqLeaf.view.previewMode&&window.__omtqLeaf.view.previewMode._children'
                  '.some(k=>k.queryResultsRenderer)?"yes":"no"', "the probe query to render")
+        wait_for('app.metadataCache.getCache(%s)?.frontmatter?"yes":"no"' % json.dumps(PROBE_DIR + "/props.md"),
+                 "Obsidian to read the property note")
+        obs('(async()=>{const leaf=app.workspace.getLeaf("tab");window.__omtqLeaf2=leaf;'
+            'await leaf.openFile(app.vault.getFileByPath(%s),{state:{mode:"preview"}})})(),"k"' % json.dumps(PROBE_DIR + "/props.md"))
+        wait_for('window.__omtqLeaf2&&window.__omtqLeaf2.view.previewMode&&window.__omtqLeaf2.view.previewMode._children'
+                 '.some(k=>k.queryResultsRenderer)?"yes":"no"', "the property note's query to render")
 
-        sources = [SCOPE + "\n" + q if not q.startswith("!") else q[1:] for q in QUERIES]
-        want = oracle(sources)
+        def source(q):
+            if q.startswith("!"):
+                return q[1:]
+            return SCOPE + "\n" + (q[1:] if q.startswith("@") else q)
+        sources = [source(q) for q in QUERIES]
+        want = oracle([[src, 1 if q.startswith("@") else 0] for src, q in zip(sources, QUERIES)])
 
         v = Vault(vault_path)
         v.mode = "tasks"
@@ -209,7 +256,11 @@ def main():
         v.entries.clear()
         v.scan()
         tasks = inline.all_tasks(v, T.isoformat())
-        payload = {"queries": [{"id": str(i), "source": s, "file": PROBE_DIR + "/q.md"} for i, s in enumerate(sources)],
+        props = inline.note_props(PROPS_NOTE)
+        payload = {"queries": [{"id": str(i), "source": s,
+                                "file": PROBE_DIR + ("/props.md" if q.startswith("@") else "/q.md"),
+                                "props": props if q.startswith("@") else {}}
+                               for i, (s, q) in enumerate(zip(sources, QUERIES))],
                    "tasks": tasks, "settings": inline.settings_public(v), "tasksSettings": v.tasks_settings.raw,
                    "today": T.isoformat()}
         got = json.loads(subprocess.run(["node", os.path.join(HERE, "tasksquery-eval.mjs")], input=json.dumps(payload),
@@ -245,10 +296,10 @@ def main():
         return fails
     finally:
         try:
-            obs("(window.__omtqLeaf&&window.__omtqLeaf.detach(),'ok')")
+            obs("(window.__omtqLeaf&&window.__omtqLeaf.detach(),window.__omtqLeaf2&&window.__omtqLeaf2.detach(),'ok')")
         except Exception:
             pass
-        for f in ("seed.md", "q.md"):
+        for f in ("seed.md", "q.md", "props.md"):
             try:
                 os.unlink(os.path.join(pdir, f))
             except OSError:

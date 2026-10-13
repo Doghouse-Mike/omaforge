@@ -528,6 +528,25 @@ def _query_rule_text(text):
     return rrule_text.to_text(r) if r else ""
 
 
+def note_props(text):
+    """A note's properties as Tasks' TasksFile.frontmatter sees them, for
+    query file defaults (TQ_*) and {{query.file.property('x')}}. tags is
+    always there, as a list of "#tag" (Obsidian's parseFrontMatterTags)."""
+    from .frontmatter import Note
+    try:
+        data = Note(text).data() if text.lstrip("\ufeff").startswith("---") else {}
+    except Exception:
+        data = {}
+    out = json.loads(json.dumps(data or {}, default=str))
+    raw = out.get("tags", out.get("tag"))
+    if isinstance(raw, str):
+        raw = [t for t in re.split(r"[,\s]+", raw) if t]
+    tags = ["#" + str(t).lstrip("#") for t in (raw or []) if t is not None and str(t).strip()]
+    out = {k: v for k, v in out.items() if k not in ("tags", "tag")}
+    out["tags"] = tags
+    return out
+
+
 def all_queries(vault):
     """Every ```tasks block in the vault, for the sidebar's Queries."""
     out = []
@@ -535,7 +554,7 @@ def all_queries(vault):
         for n, source, heading in e.queries:
             note = os.path.basename(rel)[:-3]
             out.append({"id": "query:%s%s%d" % (rel, KEY_SEP, n), "file": rel, "line": n, "source": source,
-                        "note": note, "name": heading or note})
+                        "note": note, "name": heading or note, "props": e.props})
     return out
 
 

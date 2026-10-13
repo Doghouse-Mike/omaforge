@@ -15,7 +15,7 @@ const input = JSON.parse(readFileSync(0, "utf8"));
 const out = {};
 for (const q of input.queries) {
   let r;
-  try { r = Q.evaluate(q.source, input.tasks, { file: q.file, settings: input.tasksSettings, today: input.today }); }
+  try { r = Q.evaluate(q.source, input.tasks, { file: q.file, props: q.props || {}, settings: input.tasksSettings, today: input.today }); }
   catch (e) { out[q.id] = { crash: String(e && e.stack || e) }; continue; }
   out[q.id] = r.error ? { error: r.error } : r.unsupported ? { unsupported: r.unsupported }
     : { total: r.total, groups: r.groups.map(g => ({ names: g.names, tasks: g.tasks.map(t => t.path) })) };

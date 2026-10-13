@@ -40,6 +40,13 @@ class Scan(unittest.TestCase):
         self.assertEqual(meta[14]["heading"], "Next")
         self.assertEqual(queries, [(7, "not done\n# a comment", "Next"), (11, "due today", "Next")])
 
+    def test_note_props_for_queries(self):
+        p = inline.note_props("---\nTQ_short_mode: true\nwhen: 2026-10-13\nn: 3\nlisty:\n  - a\n  -\n"
+                              "tags: alpha, beta\n---\nbody\n")
+        self.assertEqual(p, {"TQ_short_mode": True, "when": "2026-10-13", "n": 3, "listy": ["a", None],
+                             "tags": ["#alpha", "#beta"]})
+        self.assertEqual(inline.note_props("no frontmatter"), {"tags": []})
+
     def test_keys(self):
         k = inline.key("Daily notes/2026-10-07.md", 12)
         self.assertEqual(inline.split_key(k), ("Daily notes/2026-10-07.md", 12))
