@@ -7,6 +7,7 @@ import ".."
 FocusScope {
   id: tl
   property var groups: []
+  property string emptyText: "Nothing here."   // or why the view can't be shown
   property string selectedPath: ""
   property bool compact: false
   signal select(string path)
@@ -85,8 +86,12 @@ FocusScope {
 
   Txt {
     anchors.centerIn: parent
+    width: Math.min(implicitWidth, parent.width - Theme.px(48))
     visible: tl.flat.length === 0
-    text: "Nothing here."
+    text: tl.emptyText
+    wrapMode: Text.Wrap
+    elide: Text.ElideNone
+    horizontalAlignment: Text.AlignHCenter
     color: Theme.faint
   }
 }

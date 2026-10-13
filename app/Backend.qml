@@ -18,6 +18,7 @@ Singleton {
   property var settings: ({ statuses: [], priorities: [], savedViews: [] })
   property var tasks: ({})
   property var views: []
+  property var queries: []              // Tasks mode: ```tasks blocks (inline.all_queries)
   property string mode: "tasknotes"     // or "tasks" (Obsidian Tasks plugin lines)
   property bool advancedUri: false      // Advanced URI plugin: open a note at a line
   property var tasksPlugin: null        // Tasks' statuses etc. in Tasks mode
@@ -56,6 +57,7 @@ Singleton {
     settings = s.settings
     today = s.today
     views = s.views || []
+    queries = s.queries || []
     mode = s.mode || "tasknotes"
     advancedUri = !!s.advancedUri
     tasksPlugin = s.tasksPlugin || null
@@ -82,6 +84,7 @@ Singleton {
     if (msg.event === "tasks") { applyDelta(msg.upsert, msg.remove); return }
     if (msg.event === "reset") { applySnapshot(msg); return }
     if (msg.event === "views") { views = msg.views; revision++; return }
+    if (msg.event === "queries") { queries = msg.queries; revision++; return }
     if (msg.event === "error") { notice("error", msg.message); return }
     var cb = _pending[msg.id]
     var quiet = _quiet[msg.id]

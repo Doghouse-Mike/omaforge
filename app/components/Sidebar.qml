@@ -57,6 +57,23 @@ Rectangle {
       out.push({ kind: "item", id: bv.id, label: bv.name, icon: bv.layout === "board" ? "󰕰" : bv.layout === "dates" ? "󰃭" : "󰈲",
                  count: c, dim: !!bv.unsupported, tip: bv.unsupported, mine: !!bv.model })
     }
+    // Tasks mode: each ```tasks block in the vault, grouped by note.
+    var qs = Backend.mode === "tasks" ? (Backend.queries || []) : []
+    if (qs.length) {
+      out.push({ kind: "header", label: "Queries" })
+      var lastNote = ""
+      for (var qn = 0; qn < qs.length; qn++) {
+        var qb = qs[qn]
+        if (qb.note !== lastNote) {
+          lastNote = qb.note
+          var several = qs.filter(function (x) { return x.note === qb.note }).length > 1
+          if (several || qb.name !== qb.note) out.push({ kind: "subheader", label: qb.note })
+        }
+        var qr = V.compute(qb.id, tasks, s, today, { queries: qs, tasksPlugin: Backend.tasksPlugin })
+        out.push({ kind: "item", id: qb.id, label: qb.name, icon: "󰈲", count: qr.unsupported ? -1 : openCount(qr),
+                   dim: !!qr.unsupported, tip: qr.unsupported || "" })
+      }
+    }
     var views = Backend.mode === "tasks" ? [] : (s.savedViews || [])
     if (views.length) {
       out.push({ kind: "subheader", label: "TaskNotes saved views" })

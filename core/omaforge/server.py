@@ -51,6 +51,7 @@ class Server:
             "today": self.today,
             "tasks": tasks.all_tasks(v, self.today),
             "views": bases.all_views(v) if v.mode == "tasknotes" else [],
+            "queries": inline.all_queries(v) if v.mode == "tasks" else [],
             "mode": v.mode,
             "advancedUri": inline.plugin_enabled(v.path, "obsidian-advanced-uri"),
             "tasksPlugin": v.tasks_settings.public() if v.mode == "tasks" else None,
@@ -87,6 +88,10 @@ class Server:
             if changed or removed:
                 up, gone = inline.delta(self.vault, changed, removed, self.today)
                 self.send({"event": "tasks", "upsert": up, "remove": gone})
+                qs = inline.all_queries(self.vault)
+                if qs != getattr(self, "queries", None):
+                    self.queries = qs
+                    self.send({"event": "queries", "queries": qs})
             return
         if changed or removed:
             self.send({"event": "tasks",

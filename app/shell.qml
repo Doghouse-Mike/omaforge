@@ -135,7 +135,8 @@ ShellRoot {
       readonly property var result: {
         Backend.revision
         return V.compute(viewId, Backend.tasks, Backend.settings, Backend.today,
-                         { search: search.text, groupBy: groupBy, showDone: showDone, baseViews: Backend.views })
+                         { search: search.text, groupBy: groupBy, showDone: showDone, baseViews: Backend.views,
+                           queries: Backend.queries, tasksPlugin: Backend.tasksPlugin })
       }
       readonly property var flatTasks: {
         var out = []
@@ -149,6 +150,7 @@ ShellRoot {
         var kind = id.slice(0, i), arg = id.slice(i + 1)
         if (kind === "saved") { var v = (Backend.settings.savedViews || []).filter(function (x) { return x.id === arg })[0]; return v ? v.name : arg }
         if (kind === "base") { var bv = currentBase; return bv ? bv.name : arg.replace(/^.*::/, "") }
+        if (kind === "query") { var qb = (Backend.queries || []).filter(function (x) { return x.id === id })[0]; return qb ? qb.name : "Query" }
         return (kind === "context" ? "@" : kind === "tag" ? "#" : "") + arg
       }
       readonly property bool facetView: /^(project|context|tag|open):?/.test(viewId)
@@ -268,6 +270,13 @@ ShellRoot {
           return [{ text: "TaskNotes saved view", icon: "󰈲", enabled: false, hint: "edit it in TaskNotes' settings" },
                   { separator: true },
                   { text: "New view…", icon: "+", action: function () { root.startNewView() } }]
+        if (kind === "query") {
+          var qb = (Backend.queries || []).filter(function (x) { return x.id === id })[0]
+          if (!qb) return []
+          return [{ text: "Show results", icon: "󰈲", action: function () { root.pickView(id) } },
+                  { text: "Open query in Obsidian", icon: "󰏌", action: function () { root.openInObsidian({ file: qb.file, line: qb.line }) } },
+                  { text: "Copy query", icon: "󰆏", action: function () { root.copyText(qb.source) } }]
+        }
         if (kind === "note") {
           var f = ""
           for (var p in Backend.tasks) if ((Backend.tasks[p].notes || [])[0] === arg) { f = Backend.tasks[p].file; break }
@@ -527,7 +536,8 @@ ShellRoot {
           Txt {
             id: countLabel
             anchors { left: viewLabel.right; leftMargin: Theme.px(10); verticalCenter: parent.verticalCenter }
-            text: root.result.count + (root.result.unsupported ? "  ⚠ unsupported " + root.result.unsupported : "")
+            // The reason itself goes in the empty list (it can be long).
+            text: root.result.unsupported ? "⚠" : root.result.count
             color: root.result.unsupported ? Theme.yellow : Theme.faint
           }
           Row {
@@ -591,6 +601,7 @@ ShellRoot {
           visible: root.layout === "list"
           anchors { top: newBar.bottom; left: parent.left; right: parent.right; bottom: parent.bottom }
           groups: root.result.groups
+          emptyText: root.result.unsupported ? "⚠ Can't show this view.\n\n" + root.result.unsupported : "Nothing here."
           selectedPath: root.selectedPath
           onSelect: p => { root.selectedPath = p; root.forceActiveFocus() }
           onOpen: t => { root.overlayDetail = true }

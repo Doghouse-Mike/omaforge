@@ -28,6 +28,18 @@ class Scan(unittest.TestCase):
         text = "- [ ] one\nlazy continuation\n\n\t- [ ] still in the list\n"
         self.assertEqual(found(text), [0, 3])
 
+    def test_headings_parents_and_query_blocks(self):
+        text = ("# Top\n- [ ] a\n    - [ ] child\n    - note\n        - [ ] grandchild\n\n## Next ##\n"
+                "```tasks\nnot done\n# a comment\n```\n> ```tasks\n> due today\n> ```\n- [ ] b\n"
+                "```js\n- [ ] not a task\n```\n")
+        cands, meta, queries = inline.scan(text)
+        self.assertEqual([n for n, _ in cands], [1, 2, 4, 14])
+        self.assertEqual(meta[1], {"heading": "Top", "parent": None})
+        self.assertEqual(meta[2]["parent"], 1)
+        self.assertEqual(meta[4]["parent"], 3)            # nested under the plain "note" bullet
+        self.assertEqual(meta[14]["heading"], "Next")
+        self.assertEqual(queries, [(7, "not done\n# a comment", "Next"), (11, "due today", "Next")])
+
     def test_keys(self):
         k = inline.key("Daily notes/2026-10-07.md", 12)
         self.assertEqual(inline.split_key(k), ("Daily notes/2026-10-07.md", 12))

@@ -163,13 +163,15 @@ def resolve_mode(vault_path, conf=None):
 
 
 class Entry:
-    __slots__ = ("rel", "mtime", "size", "data", "error", "has_fm", "inline")
+    __slots__ = ("rel", "mtime", "size", "data", "error", "has_fm", "inline", "meta", "queries")
 
     def __init__(self, rel, mtime, size):
         self.rel, self.mtime, self.size = rel, mtime, size
         # data None = frontmatter not parsed because it can't be a task
         self.data, self.error, self.has_fm = {}, None, False
         self.inline = []   # Tasks mode: (line_no, line) checkbox lines
+        self.meta = {}     # Tasks mode: line_no -> {heading, parent}
+        self.queries = []  # Tasks mode: (line_no, source) of ```tasks blocks
 
 
 def file_hash(text):
@@ -257,7 +259,7 @@ class Vault:
             return
         if self.mode == "tasks":
             from . import inline
-            e.inline = inline.candidate_lines(text) if "[" in text else []
+            e.inline, e.meta, e.queries = inline.scan(text) if ("[" in text or "tasks" in text) else ([], {}, [])
             return
         if not (text.startswith("---") or text.startswith("﻿---")):
             return

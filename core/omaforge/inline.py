@@ -79,7 +79,9 @@ class TasksSettings:
         return self.status(" ")
 
     def public(self):
-        return {"statuses": self.statuses, "globalFilter": self.globalFilter, "taskFormat": self.taskFormat}
+        return {"statuses": self.statuses, "globalFilter": self.globalFilter, "taskFormat": self.taskFormat,
+                # for ```tasks queries (app/tasksquery.js); presets None = Tasks' defaults
+                "globalQuery": self.raw.get("globalQuery") or "", "presets": self.raw.get("presets")}
 
 
 def plugin_enabled(vault_path, plugin=PLUGIN_ID):
@@ -111,7 +113,21 @@ def is_inline_key(k):
 def candidate_lines(text):
     """(line_no, line) for checkbox-looking lines outside fenced code blocks
     and outside frontmatter. Line numbers are 0-based, as Tasks reports them."""
-    out = []
+    return scan(text)[0]
+
+
+HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+QUERY_FENCE = re.compile(r"^((?:[ \t]*>)*)[ \t]*(`{3,}|~{3,})[ \t]*tasks[ \t]*$")
+QUOTE = re.compile(r"^(?:[ \t]*>[ \t]?)+")
+
+
+def scan(text):
+    """One pass over a note: (candidates, meta, queries).
+    candidates: (line_no, line) checkbox-looking lines, as candidate_lines.
+    meta: {line_no: {"heading": nearest heading above or "", "parent": line
+           of the list item it's nested under, or None}}
+    queries: [(line_no of the fence, source, heading above)] for ```tasks blocks."""
+    out, meta, queries = [], {}, []
     lines = text.split("\n")
     i = 0
     if lines and lines[0].strip() == "---":
@@ -120,22 +136,36 @@ def candidate_lines(text):
                 i = j + 1
                 break
     fence = None
+    query = None             # (start line, quote prefix, body lines) inside ```tasks
     in_list = False          # inside a Markdown list (so indented items count)
     prev_blank = True
+    heading = ""
+    stack = []               # open list items: (indent, line_no)
     for n in range(i, len(lines)):
         line = lines[n].rstrip("\r")
-        m = FENCE.match(line)
+        m = FENCE.match(QUOTE.sub("", line))
         if m:
             if fence is None:
                 fence = m.group(1)
-            elif m.group(1) == fence:
-                fence = None
-            in_list, prev_blank = False, False
+                q = QUERY_FENCE.match(line)
+                query = (n, q.group(2), []) if q else None
+            elif m.group(1) == fence[:3] and QUOTE.sub("", line).strip().startswith(fence):
+                if query:
+                    queries.append((query[0], "\n".join(query[2]), heading))
+                fence, query = None, None
+            in_list, prev_blank, stack = False, False, []
             continue
         if fence is not None:
+            if query is not None:
+                query[2].append(QUOTE.sub("", line))
             continue
         if not line.strip():
             prev_blank = True
+            continue
+        h = HEADING.match(line)
+        if h:
+            heading = (h.group(2) or "").strip()
+            in_list, prev_blank, stack = False, False, []
             continue
         indent = indent_width(line)
         is_item = LIST_ITEM.match(line) is not None
@@ -146,12 +176,18 @@ def candidate_lines(text):
             continue
         if is_item:
             in_list = True
+            iw = indent_width(QUOTE.sub("", line))
+            while stack and stack[-1][0] >= iw:
+                stack.pop()
+            parent = stack[-1][1] if stack else None
+            stack.append((iw, n))
             if CHECKBOX_HINT.match(line):
                 out.append((n, line))
+                meta[n] = {"heading": heading, "parent": parent}
         elif indent < 2 and prev_blank:
-            in_list = False      # a new paragraph ends the list
+            in_list, stack = False, []      # a new paragraph ends the list
         prev_blank = False
-    return out
+    return out, meta, queries
 
 
 CHECKBOX_HINT = re.compile(r"^[\s\t>]*(?:[-*+]|[0-9]+[.)])\s+\[.\]")
@@ -473,8 +509,34 @@ def build(vault, rel, n, line, p, ids):
         "taskId": p["id"], "dependsOn": p["dependsOn"], "blockedBy": deps,
         "blocked": any(not b["done"] for b in deps if b["path"]),
         "onCompletion": p["onCompletion"], "props": {}, "mtime": (e.mtime // 1_000_000) if e else 0,
+        # For ```tasks queries (app/tasksquery.js)
+        "statusName": st["name"], "doneDate": p["done"], "indentation": p["indent"],
+        "ruleText": _query_rule_text(rec),
+        "heading": (e.meta.get(n) or {}).get("heading", "") if e else "",
+        "parentLine": (e.meta.get(n) or {}).get("parent") if e else None,
         "source": "tasks",
     }
+
+
+def _query_rule_text(text):
+    """recurrence.toText() as a query sees it: the normalised rule, or "" if
+    Tasks can't read it (then the task isn't recurring at all)."""
+    if not text:
+        return ""
+    from . import rrule_text
+    r = rrule_text.parse(text)
+    return rrule_text.to_text(r) if r else ""
+
+
+def all_queries(vault):
+    """Every ```tasks block in the vault, for the sidebar's Queries."""
+    out = []
+    for rel, e in sorted(vault.entries.items()):
+        for n, source, heading in e.queries:
+            note = os.path.basename(rel)[:-3]
+            out.append({"id": "query:%s%s%d" % (rel, KEY_SEP, n), "file": rel, "line": n, "source": source,
+                        "note": note, "name": heading or note})
+    return out
 
 
 def _parsed(vault):

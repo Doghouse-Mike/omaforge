@@ -1,5 +1,6 @@
 .pragma library
 .import "bases.js" as B
+.import "tasksquery.js" as TQ
 
 // Pure view logic: which tasks a sidebar entry shows, how they group and
 // sort. Dates are compared as "YYYY-MM-DD" strings (first 10 chars), which
@@ -162,6 +163,25 @@ function compute(viewId, tasks, settings, today, opts) {
     if (!bv) return { groups: [], count: 0, unsupported: "view not found (file moved or renamed?)" }
     if (bv.unsupported) return { groups: [], count: 0, unsupported: bv.unsupported }
     return computeBase(bv, tasks, settings, today, opts)
+  }
+  case "query": {
+    // An Obsidian Tasks ```tasks block, evaluated as Tasks would (tasksquery.js).
+    var qb = null
+    for (var qi = 0; qi < (opts.queries || []).length; qi++) if (opts.queries[qi].id === viewId) qb = opts.queries[qi]
+    if (!qb) return { groups: [], count: 0, unsupported: "query not found (note changed?)" }
+    var all = []
+    for (var tp in tasks) if (!tasks[tp].error && tasks[tp].source === "tasks") all.push(tasks[tp])
+    var res = TQ.evaluate(qb.source, all, { file: qb.file, settings: opts.tasksPlugin || {}, today: today })
+    if (res.error) return { groups: [], count: 0, unsupported: "Tasks query error: " + res.error }
+    if (res.unsupported) return { groups: [], count: 0, unsupported: "not supported yet: " + res.unsupported }
+    var qgroups = res.groups.map(function (g, gi) {
+      return { key: "q" + gi + JSON.stringify(g.names),
+               label: g.names.map(TQ.displayName).filter(function (n) { return n }).join(" › "),
+               tasks: g.tasks.filter(function (t) { return matchesSearch(t, opts.search) }) }
+    }).filter(function (g) { return g.tasks.length })
+    var shown = 0
+    qgroups.forEach(function (g) { shown += g.tasks.length })
+    return { groups: qgroups, count: opts.search ? shown : res.total, layout: "list" }
   }
   case "saved":
     var sv = null

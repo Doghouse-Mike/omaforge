@@ -68,14 +68,14 @@ like, not as a finished product.
     copies works)
   - manual drag ordering
   - quick-add parsing of whole sentences (dates are parsed; titles aren't)
-  - Obsidian Tasks `tasks` query blocks
   - translations (English only so far)
 - **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.13.8
   itself, running in Obsidian, for 33 operations. Its views are compared with
   Obsidian's own Bases engine across 198 cases, their sort order across 32,
   and their grouping across 12. Tasks support is compared with the Tasks
-  plugin (8.5.0): every task in a 600-task vault is read the same, and
-  37 sample lines are written and ticked the same. There are unit tests for the
+  plugin (8.5.0): every task in a 600-task vault is read the same,
+  37 sample lines are written and ticked the same, and 168 ` ```tasks `
+  queries give the same tasks in the same order and groups. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
   [Matching TaskNotes exactly](#matching-tasknotes-exactly).
 
@@ -204,8 +204,18 @@ OmaForge works with one task format at a time, chosen under the gear
   task adds the next occurrence's line, as Tasks does. New tasks go to
   today's daily note if it exists, otherwise to an inbox note you choose
   (OmaForge never creates daily notes, since they may use templates).
-  Tasks has no "skip occurrence", so neither does this mode. `tasks` query
-  blocks aren't supported yet.
+  Tasks has no "skip occurrence", so neither does this mode.
+- **Queries**: every ` ```tasks ` block in your notes appears in the sidebar
+  under **Queries**. Each is named after the heading it sits under, and shows
+  the same tasks as the block does in Obsidian, in the same order and groups.
+  The filters, boolean combinations, sorting, grouping, limits, presets and
+  the global query all follow Tasks 8.5.0 (`docs/tasks-query-spec.md`).
+  Natural-language dates are limited to a common subset: absolute dates,
+  ranges, `today`/`tomorrow`, weekdays, `in 3 days`, `next week` and the like.
+  A query using anything else, or one that Tasks itself would reject, is
+  shown dimmed with the reason, never with a guessed answer. JavaScript in
+  queries (`filter by function` and so on) is off by default in Tasks too,
+  so those lines are errors.
 
 **Auto** (the default) uses TaskNotes when that plugin is enabled in the
 vault, and Tasks otherwise.
@@ -317,6 +327,7 @@ export OMAFORGE_TEST_VAULT=~/Documents/some-disposable-vault-copy
 python3 -I tools/difftest.py
 python3 -I tools/basestest.py
 python3 -I tools/taskstest.py             # needs the Tasks plugin enabled too
+python3 -I tools/tasksquerytest.py        # ```tasks queries, same
 ```
 
 The Obsidian CLI quietly runs commands in whichever vault window was used
@@ -357,6 +368,15 @@ the vault with the Tasks plugin's own `getTasks()`. Then, for each sample line,
 it compares OmaForge's tick and rewrite with Tasks' `executeToggleTaskDoneCommand`:
 repeats, month-end clamps, "when done", 🏁 delete, odd spacing and more.
 
+`tools/tasksquerytest.py` checks ` ```tasks ` queries the same way. It seeds a
+note of varied tasks dated relative to today, then runs each query through
+the Tasks plugin's own query pipeline (with the global query, file defaults
+and placeholders) and through OmaForge's evaluator (`app/tasksquery.js`),
+comparing errors, groups and the order of every task. One difference can't
+be reproduced. Tasks that tie on every sort key, including path, keep Tasks'
+cache order, which depends on the cache's history. OmaForge uses line order
+for those, and so does the harness's input.
+
 `tools/obsidian-test` is that guarded Obsidian CLI.
 
 ## Layout
@@ -366,6 +386,7 @@ app/      Quickshell UI (shell.qml, Theme/Backend singletons, components/)
 core/     Python vault core: frontmatter.py (line-preserving YAML),
           vault.py (scan, settings, atomic writes), tasks.py (operations),
           recurrence.py (rrule.js-compatible), inline.py + rrule_text.py
+          (+ app/tasksquery.js for ```tasks queries)
           (Obsidian Tasks lines and repeat text), bases.py (.base parser,
           validator, view editor ⇄ YAML), server.py (JSON-lines bridge)
 bin/      launcher        tools/  dev + test helpers        docs/  spec, notes
@@ -381,8 +402,8 @@ follows `omarchy-theme-set` live.
 ## Not (yet) in scope
 
 Calendar grids, natural-language quick add, time tracking and pomodoro,
-editing hand-made `.base` views in place, manual drag ordering, Obsidian Tasks query
-blocks, and translations.
+editing hand-made `.base` views in place, manual drag ordering, Tasks'
+columns view and JavaScript queries, and translations.
 
 ## Licence
 
