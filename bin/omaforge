@@ -1,21 +1,23 @@
 #!/bin/bash
 # OmaForge launcher: one instance; a second launch raises the existing window.
-#   omaforge [--vault PATH] [--new] [--demo [--reset]]
+#   omaforge [--vault PATH] [--new] [--demo [--reset] [--tasks]]
 #   --demo opens a fresh copy of the bundled demo vault (made-up tasks), with
-#   editing allowed; your config and vaults aren't touched.
+#   editing allowed; your config and vaults aren't touched. --tasks shows it
+#   in Obsidian Tasks format (checkbox lines and ```tasks queries) instead.
 set -euo pipefail
 APP="$(dirname "$(readlink -f "$0")")/../app"
 APP="$(readlink -f "$APP")"
 CONFIG="${OMAFORGE_CONFIG:-$HOME/.config/omaforge/config.json}"
 
-vault="" new=0 demo=0 reset=0
+vault="" new=0 demo=0 reset=0 tasksfmt=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --vault) vault="$2"; shift 2 ;;
     --new) new=1; shift ;;
     --demo) demo=1; shift ;;
     --reset) reset=1; shift ;;
-    -h|--help) sed -n '2,6p' "$0"; exit 0 ;;
+    --tasks) tasksfmt=1; shift ;;
+    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
     *) echo "omaforge: unknown option $1" >&2; exit 2 ;;
   esac
 done
@@ -33,6 +35,8 @@ if [ "$demo" = 1 ]; then
   fi
   export OMAFORGE_DEMO_VAULT="$DEMO"
   vault="$DEMO"
+  # This run only: the format setting itself is shared with your own vaults.
+  [ "$tasksfmt" = 1 ] && export OMAFORGE_TASK_FORMAT=tasks
 fi
 
 if [ -z "$vault" ] && [ -f "$CONFIG" ]; then

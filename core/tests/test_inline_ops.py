@@ -1,3 +1,4 @@
+import time
 """Tasks-mode operations on a synthetic vault."""
 import json
 import os
@@ -112,3 +113,26 @@ class Ops(TasksCase):
         t = self.tasks()["Plant bulbs"]
         self.op("setStatus", path=t["path"], expect=t["expect"], status="/")
         self.assertIn("- [/] Plant bulbs", self.get(NOTE))
+
+
+class SettingsWatch(TasksCase):
+    def test_tasks_settings_change_resets_the_app(self):
+        import io
+        from omaforge.server import Server
+        out = io.StringIO()
+        srv = Server(out=out)
+        srv.open(self.dir)
+        srv.poll()
+        self.assertEqual(out.getvalue(), "")             # nothing changed yet
+        path = os.path.join(self.dir, ".obsidian/plugins/obsidian-tasks-plugin/data.json")
+        data = json.load(open(path))
+        data["statusSettings"]["customStatuses"].append(
+            {"symbol": "?", "name": "Question", "nextStatusSymbol": " ", "type": "TODO"})
+        data["globalQuery"] = "not done"
+        json.dump(data, open(path, "w"))
+        os.utime(path, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+        srv.poll()
+        events = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual(events[0]["event"], "reset")
+        self.assertIn("Question", [s["name"] for s in events[0]["tasksPlugin"]["statuses"]])
+        self.assertEqual(events[0]["tasksPlugin"]["globalQuery"], "not done")

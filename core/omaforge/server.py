@@ -59,11 +59,20 @@ class Server:
         }
 
     def _settings_stat(self):
-        try:
-            st = os.stat(self.vault.settings.path)
-            return (st.st_mtime_ns, st.st_size)
-        except OSError:
-            return None
+        """What the vault's derived state depends on: TaskNotes' settings, the
+        Tasks plugin's (statuses, global filter and query, presets) and which
+        plugins are enabled (Auto picks the mode from that)."""
+        paths = (self.vault.settings.path,
+                 os.path.join(self.vault.path, ".obsidian", "plugins", inline.PLUGIN_ID, "data.json"),
+                 os.path.join(self.vault.path, ".obsidian", "community-plugins.json"))
+        out = []
+        for p in paths:
+            try:
+                st = os.stat(p)
+                out.append((st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append(None)
+        return tuple(out)
 
     def poll(self):
         if not self.vault:
