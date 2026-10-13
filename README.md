@@ -99,6 +99,9 @@ and views) to `~/.local/state/omaforge/demo-vault`, filling in dates relative
 to today, and opens that copy with editing allowed. Break it freely;
 `bin/omaforge --demo --reset` gives you a fresh copy. It doesn't touch your
 config or any other vault. Close a running OmaForge (Ctrl+Q) first.
+`bin/omaforge --demo --tasks` shows the demo in Obsidian Tasks format instead
+(checkbox lines in `Tasks format/`, and a dashboard of ` ```tasks ` queries),
+for that run only.
 
 | | |
 |---|---|
