@@ -92,8 +92,9 @@ ShellRoot {
       var fi = win.contentItem ? win.contentItem.Window.activeFocusItem : null
       return JSON.stringify({ focus: fi ? (fi.objectName || String(fi).split("(")[0]) + (fi.text !== undefined ? ":" + String(fi.text).slice(0, 24) : "") : "",
                               view: root.viewId, selected: root.selectedPath, layout: root.layout,
-                              count: root.result.count, detail: detail.visible, narrow: root.narrow })
+                              count: root.result.count, detail: detail.visible, narrow: root.narrow, pane: root.focusedPane() })
     }
+    function cyclePane(dir: int): string { root.cyclePane(dir); return root.focusedPane() }
   }
 
   FloatingWindow {
@@ -117,6 +118,10 @@ ShellRoot {
 
       property string viewId: "today"
       property string selectedPath: ""
+      // Ctrl+Tab: the sidebar takes the keyboard (j/k change list) until
+      // Enter/Esc or the next Ctrl+Tab. List and task pane use real focus.
+      property bool sidebarFocus: false
+      onActiveFocusChanged: if (!activeFocus) sidebarFocus = false
       property string layout: "list"     // list | board
       property string groupBy: "status"
       property bool showDone: false
@@ -379,6 +384,31 @@ ShellRoot {
         else list.step(delta)
       }
 
+      // Ctrl+Tab / Ctrl+Shift+Tab: sidebar → list → task pane, and round.
+      function focusedPane() {
+        var fi = win.contentItem.Window.activeFocusItem
+        for (var it = fi; it; it = it.parent) if (it === detail) return "detail"
+        return sidebarFocus ? "sidebar" : "list"
+      }
+      function cyclePane(dir) {
+        if (viewEditor.visible || settingsDlg.visible || datePicker.visible || picker.visible || confirm.visible) return
+        var panes = ["sidebar", "list"]
+        if (selectedTask) panes.push("detail")
+        var i = panes.indexOf(focusedPane())
+        var next = panes[(i + dir + panes.length) % panes.length]
+        if (next === "detail") {
+          sidebarFocus = false
+          detailOpen = true; overlayDetail = true
+          detail.focusFirst()
+        } else {
+          if (search.input.activeFocus) search.input.focus = false
+          root.forceActiveFocus()
+          sidebarFocus = next === "sidebar"
+        }
+      }
+      Shortcut { sequences: ["Ctrl+Tab"]; context: Qt.WindowShortcut; onActivated: root.cyclePane(1) }
+      Shortcut { sequences: ["Ctrl+Shift+Tab", "Ctrl+Backtab"]; context: Qt.WindowShortcut; onActivated: root.cyclePane(-1) }
+
       // Keys a text box doesn't use (Tab, arrows, …) bubble up to here; never
       // act on them while typing, or ↓ in a field would move the selection.
       Keys.onPressed: e => {
@@ -410,6 +440,14 @@ ShellRoot {
         if (viewEditor.visible) {
           if (key === Qt.Key_Escape) { viewEditor.close(); return true }
           return false
+        }
+        if (sidebarFocus) {
+          switch (key) {
+          case Qt.Key_J: case Qt.Key_Down: sidebar.step(1); return true
+          case Qt.Key_K: case Qt.Key_Up: sidebar.step(-1); return true
+          case Qt.Key_Return: case Qt.Key_Enter: case Qt.Key_Escape: case Qt.Key_L: case Qt.Key_Right:
+            sidebarFocus = false; return true
+          }
         }
         var t = selectedTask
         var e = { key: key, modifiers: modifiers }
@@ -460,6 +498,7 @@ ShellRoot {
         anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
         width: root.narrow ? Theme.px(190) : Theme.px(230)
         current: root.viewId
+        focused: root.sidebarFocus
         onPicked: id => root.pickView(id)
         onNewView: root.startNewView()
         onOpenSettings: settingsDlg.open()
@@ -737,7 +776,7 @@ ShellRoot {
             model: [
               ["j / k", "next / previous task"], ["[ / ]", "previous / next list"], ["1–5", "Today, Upcoming, All, Completed, Archived"],
               ["x / space", "complete (this occurrence, if repeating)"], ["s / S", "next / previous status"], ["+ / -", "raise / lower priority"],
-              ["n", "new task in this list"], ["right-click / Menu", "actions for a task or list"], ["Tab", "edit fields (Tab / Shift+Tab between, Esc back)"], ["/", "filter"], ["b", "list / board"], ["d", "toggle detail pane"],
+              ["n", "new task in this list"], ["right-click / Menu", "actions for a task or list"], ["Tab", "edit fields (Tab / Shift+Tab between, Esc back)"], ["Ctrl+Tab", "next pane: lists, tasks, task (Shift: back)"], ["/", "filter"], ["b", "list / board"], ["d", "toggle detail pane"],
               ["o", "open in Obsidian"], ["Ctrl+S", "save notes"], ["Ctrl+Q", "quit"], ["?", "this help"]
             ]
             Row {

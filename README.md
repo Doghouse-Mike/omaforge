@@ -59,7 +59,8 @@ like, not as a finished product.
   - natural-language dates and times with a calendar picker
   - **notifications** for TaskNotes reminders, timed tasks, a morning summary
     and an overdue nudge
-  - keyboard-driven throughout
+  - keyboard-driven throughout: Ctrl+Tab moves between the lists, the tasks
+    and the open task (Ctrl+Shift+Tab back)
 - **Not yet:**
   - calendar grids
   - time tracking and pomodoro
@@ -71,9 +72,9 @@ like, not as a finished product.
   - translations (English only so far)
 - **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.13.8
   itself, running in Obsidian, for 33 operations. Its views are compared with
-  Obsidian's own Bases engine across 192 cases, and their sort order
-  across 38. Tasks support is compared with
-  the Tasks plugin (8.4.0): every task in a 600-task vault is read the same, and
+  Obsidian's own Bases engine across 198 cases, their sort order across 32,
+  and their grouping across 12. Tasks support is compared with the Tasks
+  plugin (8.5.0): every task in a 600-task vault is read the same, and
   37 sample lines are written and ticked the same. There are unit tests for the
   YAML editing, the operations, notifications and the date reader. See
   [Matching TaskNotes exactly](#matching-tasknotes-exactly).
@@ -157,8 +158,8 @@ either.
 The sidebar's **Views** lists every task view in your vault's Obsidian Bases
 (`.base`) files: TaskNotes' own Today, Overdue, This Week, Kanban, Agenda and
 so on, plus any you've made. They're evaluated live, with the same results
-Obsidian gives, in the same order (`tools/basestest.py` checks 192 cases
-and 38 sort orders against Obsidian's own query engine). Kanban views open
+Obsidian gives, in the same order and groups (`tools/basestest.py` checks
+198 cases, 32 sort orders and 12 groupings against Obsidian itself). Kanban views open
 as a board, and calendar-style views as a list grouped by date. Views that
 only make sense next to a note open in
 Obsidian (the relationship views) are left out. Anything else OmaForge can't
@@ -330,15 +331,25 @@ purpose. For example, `!x` of a missing property is no match (null), not
 true, so the editor writes "doesn't include" as `… != true` to keep tasks
 with no value.
 
-It also checks order. Every view with a sort, plus a set of extra sorts,
-is queried for Obsidian's display order (`base:query` JSON) and compared with
-the app's own `computeBase`. Rows with equal sort values fall back to the full
-path, ascending in either direction. `file.name` sorts without its extension.
-`min`, `max` and `number` of an empty value are empty, so a formula like
-TaskNotes' `urgencyScore` is empty for undated tasks and sorts them last. A
-`base:query` table only applies a sort on a property that's also a column, so
-the probe views add each sort property as a column. TaskNotes' own views sort
-either way.
+It also checks order and grouping. Every view with a sort or grouping, plus
+extra sorts and groupings, is opened in Obsidian, and the rendered view's
+`groupedData` is compared with the app's own `computeBase`. That's the order
+you actually see. `base:query` isn't used for order, because it differs from
+the view in places.
+
+What it established:
+- A sort on a note property that no task in the view has is ignored. That
+  covers TaskNotes' `tasknotes_manual_order` before anything has been
+  dragged, or `completedDate` in a list of open tasks.
+- With no sort left, rows are listed by file name.
+- Rows with equal sort values fall back to the full path, ascending in
+  either direction.
+- `file.name` sorts without its extension.
+- Empty values sort last, and the empty group stays last even when groups
+  are descending.
+- A date and a date-with-time on the same day share a group.
+- `min`, `max` and `number` of an empty value are empty, so a formula like
+  TaskNotes' `urgencyScore` is empty for undated tasks and sorts them last.
 
 `tools/taskstest.py` does the same for Obsidian Tasks (spec in
 `docs/tasks-plugin-spec.md`). It compares OmaForge's reading of every task in

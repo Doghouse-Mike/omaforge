@@ -6,11 +6,19 @@ import "../views.js" as V
 Rectangle {
   id: side
   property string current: "today"
+  property bool focused: false        // has the keyboard (Ctrl+Tab): j/k change list
   signal picked(string viewId)
   signal newView()
   signal openSettings()
   signal contextMenu(var entry, real x, real y)   // window coordinates
   color: Theme.a(Theme.fg, 0.025)
+  Rectangle {
+    anchors.fill: parent
+    z: 50
+    color: "transparent"
+    border.width: side.focused ? 2 : 0
+    border.color: Theme.accent
+  }
 
   // Rebuilt on every vault change; cheap at a few hundred tasks.
   property var model: {
@@ -78,7 +86,10 @@ Rectangle {
     var items = model.filter(function (m) { return m.kind === "item" })
     var idx = items.findIndex(function (m) { return m.id === current })
     var n = Math.max(0, Math.min(items.length - 1, idx + delta))
-    if (items[n]) picked(items[n].id)
+    if (items[n]) {
+      picked(items[n].id)
+      list.positionViewAtIndex(model.indexOf(items[n]), ListView.Contain)   // keep it on screen
+    }
   }
 
   Column {

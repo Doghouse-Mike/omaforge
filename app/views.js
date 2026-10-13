@@ -351,25 +351,36 @@ function computeBase(bv, tasks, settings, today, opts) {
     if (t.error) continue
     if (B.matches(bv, t, byName, now) && matchesSearch(t, opts.search)) list.push(t)
   }
+  // Obsidian ignores a sort on a note property that no task in the view has
+  // (TaskNotes' tasknotes_manual_order before anything is dragged, or
+  // completedDate in a list of open tasks); with no sort left it lists by
+  // file name.
+  var sorts = (bv.sort || []).filter(function (s) {
+    if (!s.ast || s.ast[0] !== "prop") return true
+    return list.some(function (t) { return t.props && t.props[s.ast[1]] !== undefined })
+  })
+  function baseName(t) { return t.path.slice(t.path.lastIndexOf("/") + 1).replace(/\.md$/, "") }
   var keys = {}
   function sortKey(t, i) {
     var k = t.path + "#" + i
     if (!(k in keys)) {
       // Obsidian sorts file.name without its extension ("Oracle weekly"
       // before "Oracle weekly (copy)"), though the value itself has one.
-      keys[k] = bv.sort[i].key === "file.name" ? t.path.slice(t.path.lastIndexOf("/") + 1).replace(/\.md$/, "")
-        : B.sortValue(B.value(bv.sort[i].ast, t, byName, now))
+      keys[k] = sorts[i].key === "file.name" ? baseName(t) : B.sortValue(B.value(sorts[i].ast, t, byName, now))
     }
     return keys[k]
   }
+  function byPath(a, b) { return B.compareValues(a.path, b.path) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0) }
   list.sort(function (a, b) {
-    for (var i = 0; i < (bv.sort || []).length; i++) {
+    // No sort: Obsidian lists by file name.
+    if (!sorts.length) return B.compareValues(baseName(a), baseName(b)) || byPath(a, b)
+    for (var i = 0; i < sorts.length; i++) {
       var c = B.compareValues(sortKey(a, i), sortKey(b, i))
-      if (c) return bv.sort[i].dir === "desc" && !(sortKey(a, i) === null || sortKey(b, i) === null) ? -c : c
+      if (c) return sorts[i].dir === "desc" && !(sortKey(a, i) === null || sortKey(b, i) === null) ? -c : c
     }
-    // Ties (and views with no sort) fall back to the full path, ascending
-    // whatever the direction, as Obsidian does (checked by tools/basestest.py).
-    return B.compareValues(a.path, b.path) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+    // Ties fall back to the full path, ascending whatever the direction, as
+    // Obsidian's views do (checked by tools/basestest.py).
+    return byPath(a, b)
   })
   var groups
   if (bv.layout === "dates") {
@@ -393,14 +404,18 @@ function computeBase(bv, tasks, settings, today, opts) {
     for (var i = 0; i < list.length; i++) {
       var raw = B.value(bv.group.ast, list[i], byName, now)
       var lab = B.label(raw)
-      var key = B.sortValue(raw)
-      if (!gs[lab]) { gs[lab] = { key: "g" + lab, label: lab || "None", sort: key, tasks: [] }; order.push(lab) }
-      gs[lab].tasks.push(list[i])
+      // Obsidian puts a date and a date-with-time on the same day in one
+      // group, labelled by whichever comes first.
+      var id = B.isDate(raw) ? B.formatDate(raw, "YYYY-MM-DD")
+        : /^\d{4}-\d{2}-\d{2}([T ]|$)/.test(lab) ? lab.slice(0, 10) : lab
+      if (!gs[id]) { gs[id] = { key: "g" + id, label: lab || "None", sort: B.sortValue(raw), tasks: [] }; order.push(id) }
+      gs[id].tasks.push(list[i])
     }
     groups = order.map(function (k) { return gs[k] })
     groups.sort(function (a, b) {
       var c = B.compareValues(a.sort, b.sort)
-      return bv.group.dir === "desc" ? -c : c
+      var empty = a.sort === null || a.sort === undefined || a.sort === "" || b.sort === null || b.sort === undefined || b.sort === ""
+      return bv.group.dir === "desc" && !empty ? -c : c      // no-value group stays last
     })
   } else {
     groups = [{ key: "all", label: "", tasks: list }]
