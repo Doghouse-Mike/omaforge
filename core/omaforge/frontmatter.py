@@ -159,7 +159,17 @@ class _Loader(yaml.SafeLoader):
     """SafeLoader that keeps timestamps as the strings they were written as.
 
     Obsidian's YAML parser doesn't coerce dates, so neither do we: a value
-    reads back exactly as the user (or TaskNotes) wrote it."""
+    reads back exactly as the user (or TaskNotes) wrote it.
+
+    It also rejects aliases. They're shared references while parsed, but
+    json.dumps walks them out in full, so a nested-alias "billion laughs"
+    block in a synced note would expand exponentially. Nothing Obsidian,
+    TaskNotes or Bases writes uses them."""
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.AliasEvent):
+            raise yaml.YAMLError("YAML aliases are not supported")
+        return super().compose_node(parent, index)
 
 
 # Obsidian parses YAML 1.2: no timestamp coercion, and only true/false are

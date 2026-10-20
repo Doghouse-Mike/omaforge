@@ -12,6 +12,8 @@ import os
 import re
 from datetime import date as _date
 
+from .vault import read_json
+
 PLUGIN_ID = "obsidian-tasks-plugin"
 KEY_SEP = "::L"          # task key: "<file>::L<line number>"
 
@@ -34,8 +36,7 @@ class TasksSettings:
         self.path = os.path.join(vault_path, ".obsidian", "plugins", PLUGIN_ID, "data.json")
         raw = {}
         try:
-            with open(self.path, encoding="utf-8") as f:
-                raw = json.load(f)
+            raw = read_json(self.path)
             if not isinstance(raw, dict):
                 raw = {}
         except (OSError, ValueError):
@@ -86,8 +87,7 @@ class TasksSettings:
 
 def plugin_enabled(vault_path, plugin=PLUGIN_ID):
     try:
-        with open(os.path.join(vault_path, ".obsidian", "community-plugins.json"), encoding="utf-8") as f:
-            return plugin in json.load(f)
+        return plugin in read_json(os.path.join(vault_path, ".obsidian", "community-plugins.json"))
     except (OSError, ValueError):
         return False
 
@@ -267,8 +267,7 @@ def daily_note_path(vault_path, day):
     the format is one we can't render safely. (We never create daily notes:
     templates may need Obsidian.)"""
     try:
-        with open(os.path.join(vault_path, ".obsidian", "daily-notes.json"), encoding="utf-8") as f:
-            conf = json.load(f)
+        conf = read_json(os.path.join(vault_path, ".obsidian", "daily-notes.json"))
     except (OSError, ValueError):
         conf = {}
     fmt = conf.get("format") or "YYYY-MM-DD"

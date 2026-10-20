@@ -19,6 +19,7 @@ import re
 import yaml
 
 from .frontmatter import _Loader
+from .vault import read_regular
 
 # ---------------------------------------------------------------- parser ----
 
@@ -341,9 +342,8 @@ def all_views(vault):
     for full in walk_bases(vault):
         rel = vault.rel(full)
         try:
-            with open(full, encoding="utf-8") as f:
-                text = f.read()
-        except OSError:
+            text = read_regular(full).decode("utf-8")
+        except (OSError, UnicodeDecodeError):
             continue
         out.extend(views_in(vault, rel, text))
     out.sort(key=lambda v: (not v["file"].startswith(vault.settings.views_folder + "/"), v["file"].lower()))

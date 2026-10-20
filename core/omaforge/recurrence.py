@@ -8,7 +8,7 @@ same per-frequency look-ahead windows so "no next occurrence" agrees too.
 import re
 from datetime import date, datetime, timedelta
 
-from dateutil.rrule import rrulestr
+from .rrule import RRule, Unsupported
 
 DAYS = {"MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu", "FR": "Fri", "SA": "Sat", "SU": "Sun"}
 FREQ = {"DAILY": ("day", "Daily"), "WEEKLY": ("week", "Weekly"), "MONTHLY": ("month", "Monthly"),
@@ -56,7 +56,9 @@ def lookahead(parts):
 
 def build(rule, fallback_start=None):
     """-> (rrule|None, dtstart, parts). fallback_start: date used when the
-    rule has no DTSTART (TaskNotes: scheduled, then dateCreated)."""
+    rule has no DTSTART (TaskNotes: scheduled, then dateCreated). A rule we
+    can't expand -- malformed or Unsupported -- gives None, so listing a
+    task never fails over it; actions that change a task call check()."""
     start, body, parts = split(rule)
     if "FREQ" not in parts:
         return None, None, parts
@@ -65,17 +67,22 @@ def build(rule, fallback_start=None):
             return None, None, parts
         start = datetime(fallback_start.year, fallback_start.month, fallback_start.day)
     # rrule.js treats a date-only UNTIL as midnight UTC; with floating times
-    # that's midnight, so an occurrence later that day is excluded.
-    def fix_until(m):
-        v = m.group(1)
-        if len(v) == 8:
-            v += "T000000"
-        return "UNTIL=" + v.rstrip("Z")
-    body = re.sub(r"UNTIL=([0-9TZ]+)", fix_until, body)
+    # that's midnight, so an occurrence later that day is excluded. (RRule
+    # reads a date-only UNTIL as midnight and ignores a trailing Z.)
     try:
-        return rrulestr(body, dtstart=start), start, parts
-    except (ValueError, TypeError):
+        return RRule(parts, start), start, parts
+    except (ValueError, TypeError, Unsupported):
         return None, None, parts
+
+
+def check(rule):
+    """Raise Unsupported if the rule is one we'd refuse to expand."""
+    _start, _body, parts = split(rule)
+    if "FREQ" in parts:
+        try:
+            RRule(parts, datetime(2000, 1, 1))
+        except (ValueError, TypeError):
+            pass  # malformed: handled as "not a repeat", as before
 
 
 def d(s):

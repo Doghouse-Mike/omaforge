@@ -12,25 +12,22 @@ next_after(rule, base_date) -> the next date (Tasks' Recurrence.next)
 """
 from datetime import date, datetime, timedelta
 
-from dateutil.rrule import DAILY, MONTHLY, WEEKLY, YEARLY, rrule, weekday
-
-FREQ = {"daily": DAILY, "weekly": WEEKLY, "monthly": MONTHLY, "yearly": YEARLY}
+from .rrule import WEEKDAYS, RRule
 
 
 def _rrule(rule, dtstart):
-    kw = {"dtstart": datetime(dtstart.year, dtstart.month, dtstart.day), "interval": rule.get("interval") or 1}
+    parts = {"FREQ": rule["freq"].upper(), "INTERVAL": str(rule.get("interval") or 1)}
     if rule.get("byweekday"):
-        kw["byweekday"] = [weekday(d, n) if n else weekday(d) for d, n in rule["byweekday"]]
+        parts["BYDAY"] = ",".join("%s%s" % (n or "", WEEKDAYS[d]) for d, n in rule["byweekday"])
     if rule.get("bymonthday"):
-        kw["bymonthday"] = rule["bymonthday"]
+        parts["BYMONTHDAY"] = ",".join(str(n) for n in rule["bymonthday"])
     if rule.get("bymonth"):
-        kw["bymonth"] = rule["bymonth"]
+        parts["BYMONTH"] = ",".join(str(n) for n in rule["bymonth"])
     if rule.get("count"):
-        kw["count"] = rule["count"]
+        parts["COUNT"] = str(rule["count"])
     if rule.get("until"):
-        u = rule["until"]
-        kw["until"] = datetime(u.year, u.month, u.day, 23, 59, 59)
-    return rrule(FREQ[rule["freq"]], **kw)
+        parts["UNTIL"] = rule["until"].strftime("%Y%m%dT235959")
+    return RRule(parts, datetime(dtstart.year, dtstart.month, dtstart.day))
 
 
 def _after(rule, base):

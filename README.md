@@ -89,7 +89,6 @@ play with it without doing a full OS install.
 Then, on Omarchy:
 
 ```bash
-sudo pacman -S --needed quickshell python-yaml python-dateutil
 git clone https://github.com/Doghouse-Mike/omaforge && cd omaforge
 bin/omaforge --demo
 ```
@@ -127,7 +126,8 @@ deliberate: pointing OmaForge at a vault never changes it until you opt in.
 
 Run `omaforge` (or pick it from the app menu). A second launch raises the
 running window. `omaforge --vault PATH` overrides the config for one run.
-Requires `quickshell`, `python-yaml` and `python-dateutil`.
+Nothing to install first on Omarchy: it needs `quickshell` and `python-yaml`,
+which a standard install already has (`python-yaml` comes in with `udiskie`).
 
 Want a key for it? Add a binding in `~/.config/hypr/bindings.lua` that runs
 `omaforge`, the same way as your other app launchers.

@@ -5,6 +5,7 @@ UI last saw: if the note changed on disk since then and the change touches a
 field we're about to edit, the write is refused as a conflict rather than
 merged by guesswork.
 """
+import errno
 import hashlib
 import json
 import os
@@ -71,6 +72,44 @@ def write_allowed(vault_path):
     return any(os.path.realpath(os.path.expanduser(str(p))) == real for p in allowed)  # frontmatter lives at the top; never slurp huge notes to scan
 
 
+MAX_FILE_BYTES = 8 * 1024 * 1024   # whole-file reads (notes, settings, .base files)
+
+
+def read_regular(path, limit=MAX_FILE_BYTES, head=False):
+    """A file's bytes, opened so it can't block.
+
+    The vault may be shared or synced, so a `.md` name proves nothing: a
+    named pipe would block open()/read() forever -- and the core is one
+    long-running process, so the whole app with it -- and a device such as
+    /dev/zero never ends. Only regular files are read (symlinks to them
+    still work). Past `limit` bytes it raises OSError(EFBIG), or with
+    `head` returns just the first `limit` bytes.
+    """
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", path)
+        chunks, total = [], 0
+        while total <= limit:
+            chunk = os.read(fd, min(1 << 20, limit + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    if len(data) > limit:
+        if head:
+            return data[:limit]
+        raise OSError(errno.EFBIG, "too large to open (over %d MB)" % (limit >> 20), path)
+    return data
+
+
+def read_json(path):
+    return json.loads(read_regular(path).decode("utf-8"))
+
+
 class VaultError(Exception):
     def __init__(self, code, message):
         super().__init__(message)
@@ -86,8 +125,7 @@ class Settings:
         self.raw = {}
         self.quarantined = None
         try:
-            with open(self.path, encoding="utf-8") as f:
-                self.raw = json.load(f)
+            self.raw = read_json(self.path)
             if not isinstance(self.raw, dict):
                 raise ValueError("not an object")
         except FileNotFoundError:
@@ -151,8 +189,7 @@ def resolve_mode(vault_path, conf=None):
     if want in ("tasknotes", "tasks"):
         return want
     try:
-        with open(os.path.join(vault_path, ".obsidian", "community-plugins.json"), encoding="utf-8") as f:
-            enabled = json.load(f)
+        enabled = read_json(os.path.join(vault_path, ".obsidian", "community-plugins.json"))
     except (OSError, ValueError):
         enabled = []
     if "tasknotes" in enabled:
@@ -200,8 +237,7 @@ class Vault:
     def app_setting(self, key, default=None):
         """A value from Obsidian's own .obsidian/app.json (absent = default)."""
         try:
-            with open(os.path.join(self.path, ".obsidian", "app.json"), encoding="utf-8") as f:
-                return json.load(f).get(key, default)
+            return read_json(os.path.join(self.path, ".obsidian", "app.json")).get(key, default)
         except (OSError, ValueError, AttributeError):
             return default
 
@@ -252,8 +288,7 @@ class Vault:
 
     def _load_head(self, full, e):
         try:
-            with open(full, "rb") as f:
-                raw = f.read(HEAD_BYTES) if self.mode != "tasks" else f.read()
+            raw = read_regular(full, HEAD_BYTES, head=True) if self.mode != "tasks" else read_regular(full)
             text = raw.decode("utf-8", errors="replace")
         except OSError as ex:
             e.error = "unreadable: %s" % ex
@@ -293,11 +328,12 @@ class Vault:
     def read(self, rel):
         full = self.abs(rel)
         try:
-            with open(full, encoding="utf-8", newline="") as f:
-                text = f.read()
+            # bytes decoded as-is keep CRLF, like newline="" did
+            return read_regular(full).decode("utf-8")
         except FileNotFoundError:
             raise VaultError("missing", "%s is gone (moved, deleted, or still syncing)" % rel)
-        return text
+        except OSError as e:
+            raise VaultError("unreadable", "%s can't be opened: %s" % (rel, e.strerror or e))
 
     def check_writable(self):
         if self.settings.quarantined:

@@ -19,7 +19,7 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 for dep in qs python3; do command -v "$dep" >/dev/null || { echo "missing: $dep" >&2; exit 1; }; done
-python3 -c 'import yaml, dateutil' 2>/dev/null || { echo "needs python-yaml and python-dateutil (pacman -S python-yaml python-dateutil)" >&2; exit 1; }
+python3 -c 'import yaml' 2>/dev/null || { echo "needs python-yaml (pacman -S python-yaml)" >&2; exit 1; }
 
 mkdir -p "$(dirname "$BIN")" "$(dirname "$DESKTOP")" "$(dirname "$ICON")"
 ln -sf "$HERE/bin/omaforge" "$BIN"

@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 
 from . import recurrence
 from .frontmatter import FrontmatterError, Note
-from .vault import VaultError, file_hash
+from .vault import VaultError, file_hash, read_regular
 
 INVALID_FILENAME = re.compile(r'[<>:"/\\|?*#\[\]]')
 
@@ -419,6 +419,7 @@ def recurring_mark(vault, req, day, list_name):
     text, note, data = load(vault, rel)
     check_expect(vault, rel, data, pick(req.get("expect"), ["scheduled", "completeInstances", "skippedInstances", "recurrence"]))
     rule = str(data.get(f("recurrence")))
+    check_rule(rule)
     anchor = "completion" if str(data.get(f("recurrenceAnchor")) or "") == "completion" else "scheduled"
     scheduled = str(data.get(f("scheduled")) or "")
     due = str(data.get(f("due")) or "")
@@ -599,6 +600,7 @@ def set_recurrence(s, note, data, body, day):
         body = body[6:]
     if "FREQ=" not in body.upper():
         raise VaultError("bad-field", "not a repeat rule: %r" % body)
+    check_rule(body)
     sched = str(data.get(f("scheduled")) or "")
     due = str(data.get(f("due")) or "")
     basis = date_or_none(sched) or date_or_none(data.get(f("dateCreated"))) or date_or_none(day)
@@ -642,6 +644,14 @@ def sanitize_filename(title):
     return s
 
 
+def check_rule(rule):
+    """Refuse, before anything is written, a repeat rule we can't expand."""
+    try:
+        recurrence.check(rule)
+    except recurrence.Unsupported as e:
+        raise VaultError("unsupported", str(e))
+
+
 def backlinks(vault, rel):
     """Notes that link to rel by name. A plain on-disk rename would break
     them (only Obsidian's own rename rewrites links)."""
@@ -654,9 +664,8 @@ def backlinks(vault, rel):
         if r == rel:
             continue
         try:
-            with open(full, encoding="utf-8", errors="replace") as fh:
-                if pat.search(fh.read()):
-                    hits.append(r)
+            if pat.search(read_regular(full).decode("utf-8", errors="replace")):
+                hits.append(r)
         except OSError:
             pass
     return hits
