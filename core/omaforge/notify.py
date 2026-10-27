@@ -40,7 +40,7 @@ DEFAULTS = {
     "overdue": {"enabled": True, "time": "17:00"},
     "snoozeMinutes": 15,
     # Omarchy's Do Not Disturb only lets through urgency=critical sent under
-    # notify-send's own app name; this sends reminders that way.
+    # notify-send's own app name; this sends reminders that way (see desktop_notify).
     "breakThroughDnd": False,
 }
 
@@ -345,31 +345,20 @@ class Daemon:
 
     def send(self, e):
         log("notify %s: %s — %s" % (e["kind"], e["title"], e["body"].replace("\n", " | ")))
-        threading.Thread(target=self._send, args=(e,), daemon=True).start()
-
-    def _send(self, e):
         urgent = e["kind"] in ("reminder", "timed") and self.cfg.get("breakThroughDnd")
-        # Under DND, Omarchy only shows critical alerts from "notify-send" itself.
-        cmd = ["notify-send"] + ([] if urgent else ["--app-name=OmaForge"]) + ["--icon=omaforge", "--wait"]
-        if urgent:
-            cmd.append("--urgency=critical")
         if e["kind"] in ("reminder", "timed"):
-            cmd += ["--expire-time=0", "--action=default=Open", "--action=done=Done",
-                    "--action=snooze=Snooze %d min" % int(self.cfg.get("snoozeMinutes") or 15), "--action=open=Open"]
+            actions = [("default", "Open"), ("done", "Done"),
+                       ("snooze", "Snooze %d min" % int(self.cfg.get("snoozeMinutes") or 15)), ("open", "Open")]
+            expire = 0
         else:
-            cmd += ["--action=default=Open", "--action=open=Open OmaForge"]
-        cmd += ["--", e["title"], e["body"]]
+            actions = [("default", "Open"), ("open", "Open OmaForge")]
+            expire = -1
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=12 * 3600)
-            action = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
-        except (OSError, subprocess.TimeoutExpired) as ex:
-            log("notify-send failed for %s: %s" % (e["key"], ex))
-            return
-        if r.returncode != 0:
-            log("notify-send exited %d for %s: %s" % (r.returncode, e["key"], r.stderr.strip()))
-            return
-        if action:
-            self.act(e, action)
+            desktop_notify(e["title"], e["body"], urgent=urgent, actions=actions, expire=expire,
+                           on_action=lambda action: threading.Thread(target=self.act, args=(e, action),
+                                                                     daemon=True).start())
+        except Exception as ex:  # a failed send must not stop the loop
+            log("notify failed for %s: %s" % (e["key"], ex))
 
     def act(self, e, action):
         log("action %s on %s" % (action, e["key"]))
@@ -421,8 +410,84 @@ def open_app(fn, arg):
         time.sleep(0.25)
 
 
+# Notifications go straight to the session's notification server over D-Bus.
+# Not notify-send: task titles and bodies would sit in its command line,
+# which any local account can read from /proc, for as long as --wait kept a
+# reminder on screen (hours, for one left undismissed).
+
+_bus = None
+_bus_lock = threading.Lock()
+_pending = {}   # notification id -> (on_action, sent at)
+
+NOTIFY_NAME = "org.freedesktop.Notifications"
+NOTIFY_PATH = "/org/freedesktop/Notifications"
+
+
+def _connect():
+    """The session bus, with a GLib loop thread delivering the server's
+    ActionInvoked/NotificationClosed signals (what notify-send --wait did)."""
+    global _bus
+    with _bus_lock:
+        if _bus is not None:
+            return _bus
+        import gi
+        gi.require_version("Gio", "2.0")
+        from gi.repository import Gio, GLib
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        ready = threading.Event()
+
+        def on_signal(conn, sender, path, iface, member, params):
+            nid = params[0]
+            if member == "ActionInvoked":
+                entry = _pending.pop(nid, None)
+                if entry and entry[0]:
+                    entry[0](params[1])
+            elif member == "NotificationClosed":
+                _pending.pop(nid, None)
+
+        def loop():
+            ctx = GLib.MainContext.new()
+            ctx.push_thread_default()   # signals are delivered to this thread's context
+            for member in ("ActionInvoked", "NotificationClosed"):
+                bus.signal_subscribe(NOTIFY_NAME, NOTIFY_NAME, member, NOTIFY_PATH, None,
+                                     Gio.DBusSignalFlags.NONE, on_signal)
+            ready.set()
+            GLib.MainLoop.new(ctx, False).run()
+
+        threading.Thread(target=loop, daemon=True, name="notify-dbus").start()
+        ready.wait(5)
+        _bus = bus
+        return bus
+
+
+def desktop_notify(title, body, urgent=False, actions=(), expire=-1, on_action=None):
+    """Send one notification; on_action(key) is called if a button is pressed.
+
+    Under DND, Omarchy only shows urgency=critical alerts whose app name is
+    notify-send's own, so urgent ones are sent under that name.
+    """
+    from gi.repository import GLib
+    bus = _connect()
+    hints = {"urgency": GLib.Variant("y", 2 if urgent else 1)}
+    flat = [x for pair in actions for x in pair]
+    params = GLib.Variant("(susssasa{sv}i)", ("notify-send" if urgent else "OmaForge", 0, "omaforge",
+                                              str(title), str(body), flat, hints, int(expire)))
+    reply = bus.call_sync(NOTIFY_NAME, NOTIFY_PATH, NOTIFY_NAME, "Notify", params,
+                          GLib.VariantType.new("(u)"), 0, 10000, None)
+    nid = reply.unpack()[0]
+    if on_action:
+        now = time.time()
+        for k in [k for k, (_, at) in list(_pending.items()) if now - at > 24 * 3600]:
+            _pending.pop(k, None)   # closed without a signal (e.g. the shell restarted)
+        _pending[nid] = (on_action, now)
+    return nid
+
+
 def notify_plain(title, body):
-    subprocess.run(["notify-send", "--app-name=OmaForge", "--icon=omaforge", "--", title, body], capture_output=True)
+    try:
+        desktop_notify(title, body)
+    except Exception as ex:
+        log("notify failed: %s" % ex)
 
 
 def log(msg):
@@ -430,11 +495,7 @@ def log(msg):
 
 
 def send_test(urgent=False):
-    if urgent:
-        subprocess.run(["notify-send", "--icon=omaforge", "--urgency=critical", "--",
-                        "OmaForge notifications are working", "This is a test from the settings panel."], capture_output=True)
-    else:
-        notify_plain("OmaForge notifications are working", "This is a test from the settings panel.")
+    desktop_notify("OmaForge notifications are working", "This is a test from the settings panel.", urgent=urgent)
 
 
 def main():

@@ -251,6 +251,11 @@ occurrence of a repeating task), **Snooze** and **Open**. Turn notifications
 off in TaskNotes' own settings, or you'll get two of each while Obsidian is
 open. The service's log is at `journalctl --user -u omaforge-notify`.
 
+Notifications go straight to the desktop's notification server over D-Bus
+(PyGObject, part of a standard Omarchy install), not through `notify-send`,
+so task titles never appear in a process command line that other accounts
+on the machine could read.
+
 ### Dates and times
 
 Date boxes take what you'd naturally type, and show what they understood
