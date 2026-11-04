@@ -138,6 +138,28 @@ tags:
 ---
 """
 
+# A weekly (Monday) series sitting in the future, so "today" doesn't move it.
+SEED_WEEKLY_FUT = """---
+status: todo
+priority: normal
+scheduled: 2026-12-07
+due: 2026-12-08
+recurrence: DTSTART:20260928;FREQ=WEEKLY;BYDAY=MO
+complete_instances:
+  - 2026-09-28
+dateCreated: 2026-09-20T10:00:00.000+01:00
+dateModified: 2026-09-20T10:00:00.000+01:00
+tags:
+  - todo
+---
+"""
+
+# TaskNotes 4.15+: the 2026-12-07 occurrence moved to Wednesday 12-09.
+SEED_MOVED = SEED_WEEKLY_FUT.replace("scheduled: 2026-12-07\ndue: 2026-12-08",
+    "scheduled: 2026-12-09\ndue: 2026-12-10").replace("tags:", "recurrence_original_date: 2026-12-07\ntags:")
+
+SEED_DAILY_NODT_FUT = SEED_DAILY_NODT.replace("2026-10-01T09:00", "2026-12-01T09:00").replace("  - 2026-10-01", "  - 2026-11-29")
+
 REMS = '[{"id":"rem_1","type":"relative","relatedTo":"due","offset":"-PT15M"},{"id":"rem_2","type":"absolute","absoluteTime":"2026-10-09T09:00:00","description":"Ring the bank"}]'
 
 # (name, seed, TaskNotes JS acting on task `t` at path A, our request)
@@ -183,6 +205,28 @@ SCENARIOS = [
     ("completion anchor", SEED_WEEKLY.replace("tags:", "recurrence_anchor: completion\ntags:"),
      'await S.toggleRecurringTaskComplete(t)', {"op": "toggleComplete"}),
     ("recurring no DTSTART complete", SEED_DAILY_NODT, 'await S.toggleRecurringTaskComplete(t)', {"op": "toggleComplete"}),
+    # 4.15+ moved-occurrence identity (recurrence_original_date).
+    ("move recurring", SEED_WEEKLY_FUT, 'await S.updateProperty(t,"scheduled","2026-12-09")', {"op": "update", "set": {"scheduled": "2026-12-09"}}),
+    ("move recurring (updateTask)", SEED_WEEKLY_FUT, 'await S.updateTask(t,{scheduled:"2026-12-09"})', {"op": "update", "set": {"scheduled": "2026-12-09"}}),
+    ("move recurring onto pattern", SEED_WEEKLY_FUT, 'await S.updateProperty(t,"scheduled","2026-12-14")', {"op": "update", "set": {"scheduled": "2026-12-14"}}),
+    ("move recurring, no DTSTART", SEED_DAILY_NODT_FUT, 'await S.updateProperty(t,"scheduled","2026-12-02T09:00")', {"op": "update", "set": {"scheduled": "2026-12-02T09:00"}}),
+    ("move moved again", SEED_MOVED, 'await S.updateProperty(t,"scheduled","2026-12-10")', {"op": "update", "set": {"scheduled": "2026-12-10"}}),
+    ("move back to original", SEED_MOVED, 'await S.updateProperty(t,"scheduled","2026-12-07")', {"op": "update", "set": {"scheduled": "2026-12-07"}}),
+    ("complete moved", SEED_MOVED, 'await S.toggleRecurringTaskComplete(t)', {"op": "toggleComplete"}),
+    ("skip moved", SEED_MOVED, 'await S.toggleRecurringTaskSkipped(t)', {"op": "skipInstance"}),
+    ("complete moved by its date", SEED_MOVED, 'await S.toggleRecurringTaskComplete(t, new Date(Date.UTC(2026,11,9)))', {"op": "toggleComplete", "date": "2026-12-09"}),
+    ("complete other date, moved", SEED_MOVED, 'await S.toggleRecurringTaskComplete(t, new Date(Date.UTC(2026,11,14)))', {"op": "toggleComplete", "date": "2026-12-14"}),
+    ("change repeat, moved", SEED_MOVED, 'await S.updateTask(t,{recurrence:"FREQ=WEEKLY;BYDAY=TU"})', {"op": "update", "set": {"recurrence": "FREQ=WEEKLY;BYDAY=TU"}}),
+    ("complete moved, in the past", SEED_MOVED.replace("2026-12-09", "2026-10-28").replace("2026-12-10", "2026-10-29").replace("2026-12-07", "2026-10-26"),
+     'await S.toggleRecurringTaskComplete(t)', {"op": "toggleComplete"}),
+    ("complete moved, completion anchor", SEED_MOVED.replace("tags:", "recurrence_anchor: completion\ntags:"),
+     'await S.toggleRecurringTaskComplete(t)', {"op": "toggleComplete"}),
+    ("untick moved (already done)", SEED_MOVED.replace("  - 2026-09-28", "  - 2026-09-28\n  - 2026-12-07"),
+     'await S.toggleRecurringTaskComplete(t)', {"op": "toggleComplete"}),
+    ("anchor change, moved", SEED_MOVED, 'await S.updateTask(t,{recurrence_anchor:"completion"})', {"op": "update", "set": {"recurrenceAnchor": "completion"}}),
+    ("move past a done date", SEED_WEEKLY_FUT.replace("  - 2026-09-28", "  - 2026-09-28\n  - 2026-12-14"),
+     'await S.updateProperty(t,"scheduled","2026-12-16")', {"op": "update", "set": {"scheduled": "2026-12-16"}}),
+    ("clear date, moved", SEED_MOVED, 'await S.updateProperty(t,"scheduled",undefined)', {"op": "update", "set": {"scheduled": ""}}),
 ]
 
 

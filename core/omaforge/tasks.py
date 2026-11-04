@@ -1,6 +1,6 @@
 """Tasks: reading notes as TaskNotes tasks, and every mutation the UI makes.
 
-Write formats follow what TaskNotes 4.13 itself produces (verified by having
+Write formats follow what TaskNotes (4.13 to 4.16) itself produces (verified by having
 the plugin perform each operation in a test vault and diffing the files):
 
 - timestamps: 2026-10-06T22:24:04.581+01:00 (local, ms, offset)
@@ -356,6 +356,28 @@ def is_recurring(s, data):
     return isinstance(rec, str) and bool(rec.strip())
 
 
+ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def move_original(s, data):
+    """TaskNotes 4.15+: when one occurrence of a scheduled-anchored series is
+    moved, `recurrence_original_date` holds the occurrence it really is (its
+    "identity"); `scheduled` holds where it was moved to. None otherwise."""
+    if not is_recurring(s, data):
+        return None
+    if str(data.get(s.f("recurrenceAnchor")) or "scheduled") != "scheduled":
+        return None
+    v = data.get(s.f("recurrenceOriginalDate"))
+    v = v.isoformat() if isinstance(v, date) else str(v or "").strip()
+    if not ISO_DAY.match(v):
+        return None
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        return None
+    return v
+
+
 def apply_status(s, note, data, status, day):
     """Spec §3: completing (non-recurring) always re-stamps completedDate;
     leaving a completed status deletes it; recurring tasks never touch it."""
@@ -429,7 +451,14 @@ def recurring_mark(vault, req, day, list_name):
     skipped = [str(x)[:10] for x in as_list(data.get(f("skippedInstances")))]
     # Completion-anchored repeats count from when you actually did it.
     default = day if anchor == "completion" else (scheduled[:10] or due[:10] or day)
-    target = (req.get("date") or default)[:10]
+    pending = move_original(s, data)
+    if req.get("date"):
+        target = req["date"][:10]
+        # A moved occurrence's own (off-pattern) date stands for its identity.
+        if pending and target == scheduled[:10] and not recurrence.occurs_on(rule, target, fallback):
+            target = pending
+    else:
+        target = pending or default[:10]
     inst = recurrence.instance_for(rule, target, completed, skipped, anchor, fallback)
 
     mine, other = (completed, skipped) if list_name == "completeInstances" else (skipped, completed)
@@ -452,10 +481,17 @@ def recurring_mark(vault, req, day, list_name):
     # Scheduled anchor: the working copy's scheduled becomes the instance
     # before advancing; completion anchor keeps the old scheduled (so due's
     # offset is measured from it).
-    work_sched = scheduled if anchor == "completion" else inst + time_suffix
+    # A known move keeps its own scheduled/due span for the due offset.
+    work_sched = scheduled if anchor == "completion" or pending else inst + time_suffix
     floor = max(day, inst)
     nxt = recurrence.next_open(rule, floor, completed, skipped, anchor, fallback)
     new_sched, new_due = scheduled, due
+    # Acting on any other occurrence (or undoing) leaves a pending move alone.
+    reopening = bool(pending) and (not adding or pending != inst)
+    if reopening:
+        nxt = None
+    elif nxt:
+        note.remove(f("recurrenceOriginalDate"))
     if nxt:
         new_sched = nxt + time_suffix
         if due and work_sched:
@@ -475,6 +511,31 @@ def recurring_mark(vault, req, day, list_name):
     if new_due:
         note.set(f("due"), new_due)
     return result(commit(vault, rel, text, note, day))
+
+
+def track_move(s, note, data, old, new):
+    """TaskNotes 4.15+ (applyRecurringMoveForScheduledChange): moving a
+    scheduled-anchored series' current occurrence records which occurrence it
+    was, unless it's moved back there. An old date that was off-pattern with
+    no record gets no guessed identity."""
+    f = s.f
+    if str(data.get(f("recurrenceAnchor")) or "scheduled") != "scheduled":
+        note.remove(f("recurrenceOriginalDate"))
+        return
+    original = move_original(s, data)
+    rule = str(data.get(f("recurrence")))
+    prev = old[:10]
+    if not original and prev:
+        fallback = date_or_none(old) or date_or_none(data.get(f("dateCreated")))
+        try:
+            if recurrence.occurs_on(rule, prev, fallback):
+                original = prev
+        except (ValueError, TypeError):
+            pass
+    if original and new[:10] != original:
+        note.set(f("recurrenceOriginalDate"), original)
+    else:
+        note.remove(f("recurrenceOriginalDate"))
 
 
 def d10(v):
@@ -519,9 +580,12 @@ def op_update(vault, req, day):
                 note.set(f(name), v)
             else:
                 note.remove(f(name))
+            if name == "scheduled" and not v:
+                note.remove(f("recurrenceOriginalDate"))
             if name == "scheduled" and v and is_recurring(s, data):
                 old = str(data.get(f("scheduled")) or "")
                 if v[:10] != old[:10]:
+                    track_move(s, note, data, old, v)
                     # §3: rescheduling a recurring task drops instance marks
                     # on/after the new date; empty lists lose their key.
                     for lname in ("completeInstances", "skippedInstances"):
@@ -534,13 +598,19 @@ def op_update(vault, req, day):
                                 note.remove(f(lname))
                     rule = str(data.get(f("recurrence")))
                     if not recurrence.has_dtstart(rule):
-                        note.set(f("recurrence"), recurrence.with_dtstart(rule, v, str(data.get(f("dateCreated")) or "")))
+                        # 4.16: from the scheduled date before the move.
+                        note.set(f("recurrence"), recurrence.with_dtstart(rule, old, str(data.get(f("dateCreated")) or "")))
         elif name == "recurrence":
             set_recurrence(s, note, data, str(value or "").strip(), day)
+            # A new rule is a new series: a pending move no longer applies.
+            if str(value or "").strip() != str(data.get(f("recurrence")) or ""):
+                note.remove(f("recurrenceOriginalDate"))
         elif name == "recurrenceAnchor":
             if value not in ("scheduled", "completion"):
                 raise VaultError("bad-field", "anchor must be scheduled or completion")
             note.set(f("recurrenceAnchor"), value)
+            if value != str(data.get(f("recurrenceAnchor")) or "scheduled"):
+                note.remove(f("recurrenceOriginalDate"))
         elif name == "blockedBy":
             deps = []
             for b in as_list(value):

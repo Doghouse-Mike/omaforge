@@ -69,8 +69,8 @@ like, not as a finished product.
   - manual drag ordering
   - quick-add parsing of whole sentences (dates are parsed; titles aren't)
   - translations (English only so far)
-- **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.13.8
-  itself, running in Obsidian, for 33 operations. Its views are compared with
+- **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.16.1
+  itself, running in Obsidian, for 50 operations. Its views are compared with
   Obsidian's own Bases engine across 198 cases, their sort order across 32,
   and their grouping across 12. Tasks support is compared with the Tasks
   plugin (8.5.0): every task in a 600-task vault is read the same,
@@ -321,7 +321,8 @@ the schedule or the day you actually complete it.
 ## Matching TaskNotes exactly
 
 `docs/tasknotes-spec.md` is the on-disk behaviour of TaskNotes 4.13.8, taken
-from its source: identification, filenames, key order, timestamps,
+from its source (later changes are tracked by `tools/difftest.py`, now run
+against 4.16.1): identification, filenames, key order, timestamps,
 recurrence, archiving and YAML style. Where the spec and the live plugin
 disagreed, the plugin won (noted in code).
 
@@ -331,7 +332,10 @@ note while OmaForge performs it on another, and the results must match. TaskNote
 must also read OmaForge's copy back. Covered: complete and uncomplete,
 statuses, priority, dates, contexts, projects, tags, archive and unarchive,
 recurring complete, skip and uncomplete (both anchor types), and create,
-including odd titles, recurrence and filename collisions.
+including odd titles, recurrence and filename collisions. Since 4.15,
+moving one occurrence of a repeating task records which occurrence it was
+(`recurrence_original_date`); ticking it marks that occurrence done, and
+moving it back or changing the rule clears it. That's covered too.
 
 ```bash
 cd core && python3 -m unittest            # unit tests (synthetic temp vaults)

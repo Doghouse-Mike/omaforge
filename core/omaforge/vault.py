@@ -24,6 +24,7 @@ DEFAULT_FIELDS = {
     "archiveTag": "archived", "completeInstances": "complete_instances",
     "skippedInstances": "skipped_instances", "blockedBy": "blockedBy",
     "reminders": "reminders", "sortOrder": "tasknotes_manual_order",
+    "recurrenceOriginalDate": "recurrence_original_date",
 }
 
 DEFAULT_STATUSES = [

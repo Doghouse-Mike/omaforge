@@ -101,6 +101,12 @@ def is_occurrence(r, day):
     return bool(occurrences(r, day, day))
 
 
+def occurs_on(rule, day, fallback_start=None):
+    """Is `day` (YYYY-MM-DD) one of the rule's own dates?"""
+    r, start, parts = build(rule, fallback_start)
+    return r is not None and is_occurrence(r, d(day))
+
+
 def instance_for(rule, target, completed, skipped, anchor="scheduled", fallback_start=None):
     """Which occurrence a 'complete'/'skip' on `target` applies to (§4.4.2)."""
     t = d(target)
