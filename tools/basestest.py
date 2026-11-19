@@ -57,6 +57,13 @@ EXPRESSIONS = [
     'recurrence.isEmpty()', '!recurrence.isEmpty()', 'file.name.lower().contains("zz-bt in")',
     'file.inFolder("TaskNotes/Tasks")', 'file.hasProperty("completedDate")',
     'if(priority == "high", true, false)', 'number(date(due)) > number(today())',
+    # value.isType(), as TaskNotes 5's "Not Blocked" uses it on blockedBy entries
+    # (objects {uid, reltype} or plain links).
+    'due.isType("date")', 'due.isType("string")', 'due.isType("null")', 'title.isType("string")',
+    'projects.isType("list")', 'list(projects)[0].isType("link")', 'list(projects)[0].isType("string")',
+    'priority.isType("any")', 'nonexistent.isType("null")', 'nonexistent.isType("any")',
+    'list(blockedBy).filter(value.isType("object")).isEmpty() == false',
+    'list(blockedBy).filter(file(if(value.isType("object"), value.uid, value)).properties.status != "done").isEmpty()',
     '((number(date(due)) - number(today())) / 86400000).floor() == 7',
     'list(contexts).length == 2', 'priority.isEmpty()',
     # null propagation (Obsidian: !null is null, null.contains() is null)

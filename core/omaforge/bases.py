@@ -158,7 +158,7 @@ class Parser:
 FUNCTIONS = {"date", "today", "now", "list", "link", "if", "number", "min", "max", "file", "string"}
 METHODS = {"isEmpty", "contains", "containsAny", "containsAll", "date", "format", "floor", "round",
            "ceil", "abs", "lower", "upper", "startsWith", "endsWith", "filter", "map", "reduce",
-           "toString", "isTruthy", "trim", "join", "slice", "unique", "sort", "reverse", "flat", "length"}
+           "toString", "isTruthy", "isType", "trim", "join", "slice", "unique", "sort", "reverse", "flat", "length"}
 FILE_FIELDS = {"name", "basename", "path", "folder", "ext", "tags", "properties", "ctime", "mtime"}
 FILE_METHODS = {"hasTag", "hasProperty", "inFolder", "asLink"}
 LAMBDA_VARS = {"value", "index", "acc"}

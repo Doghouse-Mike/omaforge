@@ -210,11 +210,30 @@ function call(name, args, ctx, scope) {
   throw new Error("unsupported function " + name)
 }
 
+// The type names value.isType() accepts for a value, as Obsidian's Bases
+// reports them (probed in Obsidian 1.13, TaskNotes test vault): every value
+// is "any"; a link is also a "string", and so is a "[[...]]" string, which
+// Obsidian reads as a link. We don't read the vault's property types, so an
+// ISO date string counts as a "date" (TaskNotes' date fields are typed as
+// dates), not a "string".
+function typesOf(v) {
+  if (v === null || v === undefined) return ["null", "any"]
+  if (isDate(v)) return ["date", "any"]
+  if (isFile(v)) return ["file", "any"]
+  if (isLink(v) || looksLikeLink(v)) return ["link", "string", "any"]
+  if (Array.isArray(v)) return ["list", "any"]
+  if (typeof v === "boolean") return ["boolean", "any"]
+  if (typeof v === "number") return ["number", "any"]
+  if (typeof v === "string") return parseDate(v) ? ["date", "any"] : ["string", "any"]
+  if (typeof v === "object") return ["object", "any"]
+  return ["any"]
+}
+
 function method(name, obj, args, ctx, scope) {
   var a = function (i) { return ev(args[i], ctx, scope) }
   // Null propagates through methods (null.contains(x) is null, not false),
   // except the emptiness tests.
-  if ((obj === null || obj === undefined) && name !== "isEmpty" && name !== "isTruthy" && name !== "toString") return null
+  if ((obj === null || obj === undefined) && name !== "isEmpty" && name !== "isTruthy" && name !== "toString" && name !== "isType") return null
   function lambda(i, extra) { return function (value, index, acc) { return ev(args[i], ctx, Object.assign({}, scope, { value: value, index: index, acc: acc }, extra || {})) } }
   switch (name) {
   case "isEmpty":
@@ -223,6 +242,7 @@ function method(name, obj, args, ctx, scope) {
     if (typeof obj === "object" && !isDate(obj) && !isLink(obj) && !isFile(obj)) return Object.keys(obj).length === 0
     return false
   case "isTruthy": return truthy(obj)
+  case "isType": return typesOf(obj).indexOf(String(a(0)).toLowerCase()) >= 0
   case "contains":
     if (Array.isArray(obj)) { var x = a(0); return obj.some(function (o) { return eq(o, x) }) }
     if (obj === null || obj === undefined) return false
