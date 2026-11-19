@@ -60,7 +60,9 @@ function dueBucket(day, today) {
 function priorityWeight(t, settings) {
   var ps = settings.priorities || []
   for (var i = 0; i < ps.length; i++) if (ps[i].value === t.priority) return ps[i].weight || 0
-  return 0
+  // No priority (TaskNotes 5) ranks below every configured one, as
+  // TaskNotes' own priorityWeight does.
+  return t.priority ? 0 : -1
 }
 function statusOrder(t, settings) {
   var ss = settings.statuses || []
@@ -237,7 +239,8 @@ function group(list, by, settings, today) {
       add("s" + t.status, statusLabel(t.status, settings), t, String(100 + so))
     } else if (by === "priority") {
       var w = priorityWeight(t, settings)
-      add("p" + t.priority, priorityLabel(t.priority, settings), t, String(100 - w))
+      // Fixed width: group keys compare as strings ("100" < "97").
+      add("p" + t.priority, priorityLabel(t.priority, settings), t, ("00000" + (10000 - w)).slice(-5))
     } else if (by === "project") {
       var pr = (t.projects && t.projects.length) ? t.projects[0] : ""
       add("j" + pr, pr || "No project", t, pr ? "0" + pr.toLowerCase() : "1")

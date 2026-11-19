@@ -152,6 +152,15 @@ class Settings:
         self.store_title_in_filename = bool(r.get("storeTitleInFilename", True))
         self.filename_format = r.get("taskFilenameFormat") or "title"
         self.saved_views = r.get("savedViews") or []
+        # TaskNotes' major version (0 if unknown). 5.x reads a task with no
+        # priority as having none, where 4.x reads it as "normal".
+        self.manifest_path = os.path.join(vault_path, ".obsidian", "plugins", "tasknotes", "manifest.json")
+        try:
+            m = read_json(self.manifest_path)
+            self.tasknotes_major = int(str(m.get("version", "")).split(".")[0]) if isinstance(m, dict) else 0
+        except (OSError, ValueError):
+            self.tasknotes_major = 0
+        self.missing_priority = "" if self.tasknotes_major >= 5 else "normal"
         # Where TaskNotes keeps its .base views (next to the tasks folder).
         parent = os.path.dirname(self.tasks_folder)
         self.views_folder = (parent + "/Views") if parent else "Views"

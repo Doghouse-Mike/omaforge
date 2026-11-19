@@ -16,6 +16,7 @@ import json
 import os
 import re
 import subprocess
+import uuid
 from datetime import date, datetime, timedelta
 
 from . import recurrence
@@ -210,7 +211,7 @@ def build(vault, rel, d, day, index=None):
         "title": title,
         "status": status,
         "done": s.is_completed(status),
-        "priority": norm_choice(d.get(f("priority")), s.priorities, "normal"),
+        "priority": norm_choice(d.get(f("priority")), s.priorities, s.missing_priority),
         "due": str(d.get(f("due")) or ""),
         "scheduled": scheduled,
         "contexts": [str(c).lstrip("@") for c in as_list(d.get(f("contexts")))],
@@ -884,6 +885,9 @@ def op_create(vault, req, day):
         note.set(s.prop_name, s.prop_value)
     if tags:
         note.set("tags", tags)
+    # TaskNotes 5 gives every new task a stable UUID in `id` (not a mapped
+    # field), written last; 4.x keeps it as an ordinary property.
+    note.set("id", str(uuid.uuid4()))
     if fields.get("body"):
         note.body = "\n" + str(fields["body"]).replace("\r\n", "\n").strip("\n") + "\n"
     vault.write(rel, note.render(), create=True)

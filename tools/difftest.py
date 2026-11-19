@@ -11,6 +11,7 @@ Refuses to run against anything but the disposable test vault.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -28,6 +29,7 @@ VAULT_NAME = os.path.basename(VAULT.rstrip("/"))
 CLI = os.path.join(HERE, "obsidian-test")
 FOLDER = "TaskNotes/Tasks"
 IGNORE = {"dateModified", "dateCreated"}
+UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 if not VAULT or not os.path.isdir(VAULT):
     sys.exit("set OMAFORGE_TEST_VAULT to a disposable vault copy that's open in Obsidian")
@@ -72,7 +74,12 @@ def fm(path):
     with open(os.path.join(VAULT, path), encoding="utf-8") as f:
         text = f.read()
     d = Note(text).data()
-    return {k: v for k, v in d.items() if k not in IGNORE}, text
+    out = {k: v for k, v in d.items() if k not in IGNORE}
+    # TaskNotes 5's task id is a fresh random UUID: compare its presence,
+    # position and shape, not its value.
+    if "id" in out:
+        out["id"] = "<uuid4>" if UUID4_RE.match(str(out["id"])) else "<bad id %r>" % out["id"]
+    return out, text
 
 
 def write(path, text):

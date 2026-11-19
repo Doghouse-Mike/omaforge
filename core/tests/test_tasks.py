@@ -8,6 +8,8 @@ import unittest
 from omaforge import tasks, vault as vault_mod
 from omaforge.vault import Vault, VaultError
 
+UUID4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+
 DAY = "2026-10-06"
 
 SETTINGS = {
@@ -252,6 +254,7 @@ dateCreated: 2026-10-01T10:00:00.000+01:00
 tags:
   - todo
   - work
+id: 11111111-2222-4333-8444-555555555555
 ---
 
 Notes stay.
@@ -264,7 +267,30 @@ Notes stay.
             self.assertIn(want, text)
         for gone in ("complete_instances", "id: rem_1\n", "status: done"):
             self.assertNotIn(gone, text)
-        self.assertTrue(text.split("---")[1].rstrip().endswith("  - work"))  # tags still last
+        # tags, then a fresh id (TaskNotes 5): a copy never shares its original's.
+        self.assertRegex(text.split("---")[1].rstrip(), r"  - work\nid: " + UUID4 + "$")
+        self.assertNotIn("11111111-2222-4333-8444-555555555555", text)
+
+
+class MissingPriority(VaultCase):
+    """TaskNotes 5 reads a task with no priority as having none; 4.x as
+    "normal". Which applies comes from the installed plugin's manifest."""
+    def task(self, version):
+        if version:
+            self.put(".obsidian/plugins/tasknotes/manifest.json", json.dumps({"version": version}))
+        self.put("TaskNotes/Tasks/No prio.md", "---\ntitle: No prio\nstatus: todo\ntags:\n  - todo\n---\n")
+        v = Vault(self.dir)
+        v.scan()
+        return next(t for t in tasks.all_tasks(v, "2026-11-19") if t["path"].endswith("No prio.md"))
+
+    def test_tasknotes_5(self):
+        self.assertEqual(self.task("5.0.1")["priority"], "")
+
+    def test_tasknotes_4(self):
+        self.assertEqual(self.task("4.18.4")["priority"], "normal")
+
+    def test_unknown_version(self):
+        self.assertEqual(self.task(None)["priority"], "normal")
 
 
 class Create(VaultCase):
@@ -278,7 +304,7 @@ class Create(VaultCase):
         text = self.get(r["path"])
         lines = text.split("\n")
         self.assertEqual(lines[1:4], ["status: todo", "priority: normal", "due: 2026-10-09"])
-        self.assertTrue(text.endswith("tags:\n  - todo\n  - home\n---\n\n"))
+        self.assertRegex(text, r"tags:\n  - todo\n  - home\nid: " + UUID4 + r"\n---\n\n$")
 
 
 if __name__ == "__main__":

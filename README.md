@@ -69,10 +69,11 @@ like, not as a finished product.
   - manual drag ordering
   - quick-add parsing of whole sentences (dates are parsed; titles aren't)
   - translations (English only so far)
-- **How it's checked:** OmaForge's writes are diffed against TaskNotes 4.16.1
+- **How it's checked:** OmaForge's writes are diffed against TaskNotes 5.0.1
   itself, running in Obsidian, for 50 operations. Its views are compared with
-  Obsidian's own Bases engine across 198 cases, their sort order across 32,
-  and their grouping across 12. Tasks support is compared with the Tasks
+  Obsidian's own Bases engine across 228 cases, their sort order across 46,
+  and their grouping across 14 (with TaskNotes 5's freshly generated views
+  in the vault alongside older ones). Tasks support is compared with the Tasks
   plugin (8.5.0): every task in a 600-task vault is read the same,
   37 sample lines are written and ticked the same, and 245 ` ```tasks `
   queries give the same tasks in the same order and groups. There are unit tests for the
@@ -322,7 +323,7 @@ the schedule or the day you actually complete it.
 
 `docs/tasknotes-spec.md` is the on-disk behaviour of TaskNotes 4.13.8, taken
 from its source (later changes are tracked by `tools/difftest.py`, now run
-against 4.16.1): identification, filenames, key order, timestamps,
+against 5.0.1): identification, filenames, key order, timestamps,
 recurrence, archiving and YAML style. Where the spec and the live plugin
 disagreed, the plugin won (noted in code).
 

@@ -62,7 +62,7 @@ class Server:
         """What the vault's derived state depends on: TaskNotes' settings, the
         Tasks plugin's (statuses, global filter and query, presets) and which
         plugins are enabled (Auto picks the mode from that)."""
-        paths = (self.vault.settings.path,
+        paths = (self.vault.settings.path, self.vault.settings.manifest_path,
                  os.path.join(self.vault.path, ".obsidian", "plugins", inline.PLUGIN_ID, "data.json"),
                  os.path.join(self.vault.path, ".obsidian", "community-plugins.json"))
         out = []
